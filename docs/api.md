@@ -375,8 +375,12 @@ range requests, so a failed download starts over.
   next complete export removes the incomplete one. A symbolic link at
   `records.ndjson` is refused before the Keychain or the network (exit 2).
 - **The sandbox** is shared and refreshed weekly: "The Sandbox is refreshed
-  every Sunday at approximately 8:00 PM Central Time"; a new app syncs to it
-  in about an hour. Its test patients (`fhircamila`, `fhirderrick`,
+  every Sunday at approximately 8:00 PM Central Time". Epic does not say
+  how long a new app takes to reach it: the household's app was still
+  unknown 85 minutes after Save & Ready for Sandbox (2026-11-16), and
+  developers report 12 to 24 hours. Until then its authorize page answers
+  "OAuth2 Error … Something went wrong trying to authorize the client",
+  which is also its answer to a production client id. Its test patients (`fhircamila`, `fhirderrick`,
   `fhirdesiree`, password `epicepic1`) are synthetic and published by Epic.
 
 ## Kaiser Permanente
