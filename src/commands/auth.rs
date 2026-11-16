@@ -247,11 +247,11 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// The longest patient id a sign-in accepts. FHIR R4 caps an `id` at 64
-/// characters, but an Epic app's default "Use Unconstrained FHIR IDs" lets
-/// ids run longer, and Epic names no upper bound; this one keeps a request
-/// path and the Keychain account's name a reasonable size.
-pub const MAX_ID_LEN: usize = 256;
+/// The longest patient id a sign-in accepts: pk-med-fhir's bound, so every
+/// id a sign-in keeps can be read. FHIR R4 caps an `id` at 64 characters,
+/// but an Epic app's default "Use Unconstrained FHIR IDs" lets ids run
+/// longer (docs/api.md).
+use pk_med_fhir::MAX_ID_LEN;
 
 /// A FHIR `id`'s characters (`A-Z a-z 0-9 - .`), 1 to [`MAX_ID_LEN`] of
 /// them. The patient id goes into request paths and the Keychain account's
