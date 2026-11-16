@@ -187,6 +187,7 @@ fn list_in<T: crate::fhir::Wire>(
 ) -> Result<Vec<Listed>, CliError> {
     let mut out: Vec<Listed> = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut withheld = std::collections::BTreeSet::new();
     for extra in [&[("category", "clinical-note")][..], &[][..]] {
         let mut params = vec![("patient".to_string(), patient.to_string())];
         params.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
@@ -203,6 +204,13 @@ fn list_in<T: crate::fhir::Wire>(
                 "warning: {} DocumentReference entries were not FHIR resources",
                 summary.malformed
             ));
+        }
+        for line in summary.withheld {
+            if withheld.insert(line.clone()) {
+                ctx.note(format!(
+                    "warning: the server left out some DocumentReference results: {line}"
+                ));
+            }
         }
         match r {
             Ok(()) => {}

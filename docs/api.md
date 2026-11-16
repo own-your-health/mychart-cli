@@ -13,6 +13,8 @@ public sandbox. Quotations are Epic's wording. Sources:
 | guidelines | <https://fhir.epic.com/Documentation?docId=developerguidelines> |
 | patient auth | <https://open.epic.com/Tutorial/PatientAuthentication> |
 | endpoints | <https://open.epic.com/MyApps/Endpoints> |
+| Specimen | <https://fhir.epic.com/Specifications?api=10015> (Patient Chart), <https://fhir.epic.com/Specifications?api=11366> (Outside Record) |
+| Media | <https://fhir.epic.com/Specifications?api=11001> |
 
 ## 1. Registering a patient-facing app
 
@@ -97,9 +99,9 @@ What mychart does (oauth2, "Dynamic Client Registration"):
    returned from a JWKS URL". pk-med-smart's body also carries RFC 7591's
    `token_endpoint_auth_method: "none"`, `grant_types: [<the JWT-bearer
    grant>]`, `response_types: []` and `redirect_uris: []`, which describe
-   that client. **Not settled by the docs:** whether Epic ignores or refuses
-   those members; Epic's example sends only the two above. The sandbox
-   sign-in settles it.
+   that client. Epic's example sends only the two above; Epic's sandbox
+   accepts the other four: the household's sandbox sign-in on 2026-11-16
+   registered with all six, and the JWT-bearer grant after it succeeded.
 4. Every access token after that comes from the JWT-bearer grant (RFC 7523),
    which Epic recommends over a second launch for a refresh token:
    `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`,
@@ -122,7 +124,8 @@ Lifetimes:
 | Access token | about an hour (`expires_in` 3240 to 3600 in Epic's examples) | "the number of seconds for which the access token is valid" |
 | id token | 5 minutes | "This is set to the current time plus 5 minutes." |
 | Dynamic client | the period the patient chose | "For the duration the user selected when approving your app… your app can get an access token whenever it needs using the JWT bearer authorization grant" |
-| That period | chosen in MyChart from the organization's options, 1 hour to 1 year on Epic's screenshots; indefinite only if the organization configures it | "In patient-facing contexts, it can be set by the patient through MyChart"; "Note that this only gives patients the option of indefinite access. Each patient still chooses their max access period." |
+| That period | chosen in MyChart from the organization's options, 1 hour to 1 year on Epic's screenshots; indefinite only if the organization configures it. The sandbox's consent screen (2026-11-16) offers 1 hour, 1 day, 1 week, 1 month, 3 months, 6 months and 1 year, none chosen beforehand | "In patient-facing contexts, it can be set by the patient through MyChart"; "Note that this only gives patients the option of indefinite access. Each patient still chooses their max access period." |
+| Without dynamic registration (`dynamic_registration false`) | the access token's hour; `renewable` false (sandbox, 2026-11-16) | "you cannot use the "refresh_token" grant type for persistent access to APIs (>1 hour of access)" |
 
 `mychart auth status` shows each sign-in's `renewable` flag and token
 expiry; when the period ends the grant fails and mychart asks for a new
@@ -322,7 +325,52 @@ range requests, so a failed download starts over.
   it from the stream.
 - **Observation, Condition, CarePlan and DocumentReference split by
   category**; a category an organization does not serve answers 400, which
-  mychart records as an `unsupported` skip and goes on.
+  mychart records as an `unsupported` skip and goes on. So does a category
+  of an Observation API the client lacks: "Combination of parameters is not
+  valid for any authorized sub-resource. No search was performed." mychart
+  searches only the categories its registered APIs serve (`laboratory`,
+  `vital-signs`, `social-history`, `survey`, `sdoh`, `imaging`,
+  `care-experience-preference`); the CapabilityStatement's others
+  (`core-characteristics`, `LDA`, `LDA-property`, `LDA-assessment`,
+  `functional-mental-status`, `periodontal`, `labor-delivery`,
+  `newborn-delivery`, `obstetrics-gynecology`) need APIs that are not on
+  the USCDI v3 list.
+- **A 200 can leave results out.** Beside the results, Epic adds an
+  OperationOutcome entry with an issue of severity `warning` and code
+  `suppressed` for each sub-resource it did not search. Epic's code 59204
+  says "The authenticated client's search request applies to a
+  sub-resource that the client is not authorized for. Results of this
+  sub-type will not be returned." Its `diagnostics` name the sub-resource:
+  "Client not authorized for Condition - Outside Record Problems. Search
+  results of this type have not been included." A "User not authorized"
+  issue names one the patient's account may not see ("Observation -
+  SmartData Elements" in the sandbox). Epic repeats an issue in every
+  search that touches the sub-resource. mychart keeps what was served and
+  makes each distinct issue one `forbidden` skip per export: the skip names
+  the first search and how many more said the same. `documents list` prints
+  each as a warning. Epic's other warnings carry no loss and are dropped:
+  4101 "Resource request returns no results.", 4119 "This response includes
+  information available to the authorized user at the time of the
+  request…", and 59134 "Processing issues." with "Unable to build the
+  document list." on a DocumentReference search without a category.
+- **Outside Record APIs return nothing from Epic's November 2025
+  version on**: "The Outside Record FHIR APIs are no longer enabled in the
+  November 2025 version. Requests to these APIs do not return data."
+  (Specimen, Outside Record). They serve what other organizations sent.
+  The app registers them for organizations on an earlier version. In
+  the sandbox every search reports its Outside Record sub-resource as not
+  authorized, with dynamic registration and without: 27 `forbidden` skips
+  per export of `fhircamila` (2026-11-16).
+- **Specimen and Media cannot be searched by patient**: "This API currently
+  supports only the _id search parameter. As a result, it functions
+  similarly to Specimen.Read (R4). Specimen references can be returned in
+  Observation (Labs) and ServiceRequest (Orders) responses." Media says the
+  same: "Media references are returned in DiagnosticReport.Search (Results)
+  (R4)." A search with `patient` or `subject` answers 400, "Content invalid
+  against the specification or a profile." mychart reads both by reference,
+  from `Observation.specimen`, `ServiceRequest.specimen` and
+  `DiagnosticReport.media`, and fetches a Media's `content` Binary right
+  after it.
 - **What each refusal becomes** (pk-med-fhir maps the status and any
   OperationOutcome issue code; mychart picks stop or skip):
 
@@ -330,6 +378,7 @@ range requests, so a failed download starts over.
   |---|---|
   | 401, or an issue `login`, `unknown` or `expired`, after one renewal | stop, exit 3 |
   | 403, or an issue `forbidden`, `suppressed` or `security` | `forbidden` skip |
+  | a 2xx search with a `suppressed` warning | its results kept, and one `forbidden` skip per export for each thing left out |
   | 404, 410, or an issue `not-found` or `deleted` | `not_found` skip |
   | another 4xx | `unsupported` skip |
   | 429, 5xx or an HTML 403 (an edge, not the server) after its retries; a body that is not the FHIR asked for | `upstream` skip |
@@ -384,9 +433,10 @@ range requests, so a failed download starts over.
   `records.ndjson` is refused before the Keychain or the network (exit 2).
 - **The sandbox** is shared and refreshed weekly: "The Sandbox is refreshed
   every Sunday at approximately 8:00 PM Central Time". Epic does not say
-  how long a new app takes to reach it: the household's app was still
-  unknown 85 minutes after Save & Ready for Sandbox (2026-11-16), and
-  developers report 12 to 24 hours. Until then its authorize page answers
+  how long a new app takes to reach it. The household's app was saved Ready
+  for Sandbox at about 13:55 ET on 2026-11-16. A check every 30 minutes found
+  it unknown at 16:44 and known at 17:14, so it took about 2 h 50 min to
+  3 h 20 min. Developers report 12 to 24 hours. Until then its authorize page answers
   "OAuth2 Error … Something went wrong trying to authorize the client",
   which is also its answer to a production client id. Its test patients (`fhircamila`, `fhirderrick`,
   `fhirdesiree`, password `epicepic1`) are synthetic and published by Epic.
