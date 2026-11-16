@@ -1291,3 +1291,60 @@ fn a_token_answer_without_expires_in_lasts_an_hour_and_shows_when() {
         assert_eq!(row["status"]["authenticated"], true);
     }
 }
+
+/// Epic's unconstrained ids run past FHIR's 64 characters: a sign-in keeps
+/// such a patient, reads it, and exports it.
+#[test]
+fn a_patient_id_past_64_characters_signs_in_and_exports() {
+    use serde_json::json;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    let long = format!("eLong{}", "x".repeat(195));
+    mock.set(|st| {
+        st.grant_patient = Some(long.clone());
+        let patient = json!({"resourceType": "Patient", "id": long});
+        let allergy = json!({
+            "resourceType": "AllergyIntolerance",
+            "id": "allergy-long-1",
+            "patient": {"reference": format!("Patient/{long}")}
+        });
+        for r in [patient, allergy] {
+            let kind = r["resourceType"].as_str().unwrap().to_string();
+            let text = r.to_string();
+            st.resources.entry(kind).or_default().push((r, text));
+        }
+    });
+    login(&ctx, "adult1");
+    let s = stored(&ctx, &long);
+    assert_eq!(s.patient.as_deref(), Some(long.as_str()));
+    let (values, _) = export_stream(&ctx, &long, None);
+    let trailer = values.last().unwrap();
+    assert_eq!(trailer["complete"], true, "{trailer}");
+    assert_eq!(trailer["counts"]["Patient"], 1, "{trailer}");
+    assert_eq!(trailer["counts"]["AllergyIntolerance"], 1, "{trailer}");
+}
+
+/// A granted patient id that is not a FHIR id (`..` would climb a request
+/// path) is refused, and nothing is kept.
+#[test]
+fn a_granted_patient_id_that_is_not_a_fhir_id_is_refused() {
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    mock.set(|st| st.grant_patient = Some("..".into()));
+    let e = commands::auth::run(
+        &ctx,
+        &AuthCmd::Login(LoginArgs {
+            org: ORG_ID.into(),
+            label: Some("adult1".into()),
+            no_browser: false,
+            timeout: 1,
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(e.exit_code(), 5, "{e}");
+    assert!(e.to_string().contains("not a FHIR id"), "{e}");
+    assert!(ctx.contexts().unwrap().is_empty());
+    assert_eq!(mock.get(|st| st.registrations), 0);
+}

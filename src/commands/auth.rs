@@ -140,7 +140,10 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
                 .into(),
         )
     })?;
-    if !is_fhir_id(&patient) {
+    // pk-med-fhir's id rule, so every patient a sign-in keeps can be read:
+    // up to 256 characters, past FHIR's 64, for Epic's unconstrained ids
+    // (docs/api.md). The id also names the Keychain account.
+    if !pk_med_fhir::is_id(&patient) {
         return Err(CliError::Upstream(
             "the organization granted access to a patient id that is not a FHIR id".into(),
         ));
@@ -245,21 +248,6 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         );
     }
     Ok(())
-}
-
-/// The longest patient id a sign-in accepts: pk-med-fhir's bound, so every
-/// id a sign-in keeps can be read. FHIR R4 caps an `id` at 64 characters,
-/// but an Epic app's default "Use Unconstrained FHIR IDs" lets ids run
-/// longer (docs/api.md).
-use pk_med_fhir::MAX_ID_LEN;
-
-/// A FHIR `id`'s characters (`A-Z a-z 0-9 - .`), 1 to [`MAX_ID_LEN`] of
-/// them. The patient id goes into request paths and the Keychain account's
-/// name.
-fn is_fhir_id(s: &str) -> bool {
-    (1..=MAX_ID_LEN).contains(&s.len())
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
 }
 
 /// One read of the patient's own record, to prove the session works,
@@ -458,19 +446,22 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
 mod tests {
     #[test]
     fn a_patient_id_must_be_a_fhir_id() {
-        assert!(super::is_fhir_id("eq081-VQEgP8drUUqCWzHfw3"));
-        assert!(super::is_fhir_id("a.b-1"));
+        use pk_med_fhir::{is_id, MAX_ID_LEN};
+        assert!(is_id("eq081-VQEgP8drUUqCWzHfw3"));
+        assert!(is_id("a.b-1"));
         // Longer than FHIR's 64: Epic's unconstrained ids.
-        assert!(super::is_fhir_id(&"a".repeat(65)));
-        assert!(super::is_fhir_id(&"a".repeat(super::MAX_ID_LEN)));
+        assert!(is_id(&"a".repeat(65)));
+        assert!(is_id(&"a".repeat(MAX_ID_LEN)));
         for bad in [
             "",
+            ".",
+            "..",
             "x/../y",
             "x?y",
             "x y",
-            &"a".repeat(super::MAX_ID_LEN + 1),
+            &"a".repeat(MAX_ID_LEN + 1),
         ] {
-            assert!(!super::is_fhir_id(bad), "{bad}");
+            assert!(!is_id(bad), "{bad}");
         }
     }
 
