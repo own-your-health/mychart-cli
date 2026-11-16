@@ -73,6 +73,8 @@ pub struct State {
     /// The ID token carries another nonce than the authorization's, as an
     /// answer to some other sign-in would.
     pub wrong_nonce: bool,
+    /// The patient a sign-in grants, as themself, in place of the pick's.
+    pub grant_patient: Option<String>,
     /// resourceType → resources, parsed and as the text served (decimals
     /// such as `13.50` kept).
     pub resources: HashMap<String, Vec<(Value, String)>>,
@@ -173,6 +175,7 @@ impl MockEpic {
             registrations: 0,
             nonces: 0,
             wrong_nonce: false,
+            grant_patient: None,
             resources: synthetic_resources(),
             refuse: vec![
                 ("Observation?category=sdoh".into(), 400),
@@ -425,9 +428,12 @@ fn serve(mut stream: TcpStream, port: u16, state: &Arc<Mutex<State>>) -> Option<
                 return Some(());
             }
             let mut st = state.lock().unwrap();
-            let (patient, fhir_user) = match st.pick {
-                Pick::Myself => (SELF_PATIENT.to_string(), format!("Patient/{SELF_PATIENT}")),
-                Pick::Child => (CHILD_PATIENT.to_string(), PROXY_USER.to_string()),
+            let (patient, fhir_user) = match (&st.grant_patient, &st.pick) {
+                (Some(id), _) => (id.clone(), format!("Patient/{id}")),
+                (None, Pick::Myself) => {
+                    (SELF_PATIENT.to_string(), format!("Patient/{SELF_PATIENT}"))
+                }
+                (None, Pick::Child) => (CHILD_PATIENT.to_string(), PROXY_USER.to_string()),
             };
             st.nonces += usize::from(q.contains_key("nonce"));
             let code = st.next("code");

@@ -308,8 +308,10 @@ range requests, so a failed download starts over.
   app's FHIR ID generation defaults to "Use Unconstrained FHIR IDs"; the
   other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR
   Resources", leaves other resources unlimited. Epic names no upper bound.
-  mychart accepts 1 to 256 of FHIR's id characters for the patient, as
-  pk-med-fhir does for a read or a `Binary`; a longer one is a skip. A
+  mychart applies pk-med-fhir's rule (`is_id`): 1 to 256 of FHIR's id
+  characters, not only dots. A sign-in granting another patient id is
+  refused (exit 5, nothing kept); a read or `Binary` of another id is a
+  skip. A
   document id over 100 characters is shortened in its file name to its
   first 83 and 16 hex digits of its SHA-256.
 - **An empty search is not empty**: Epic answers with an `OperationOutcome`
