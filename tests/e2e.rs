@@ -1350,8 +1350,11 @@ fn a_granted_patient_id_that_is_not_a_fhir_id_is_refused() {
 }
 
 /// References written absolute on this server, or with a `_history`
-/// version, are followed like relative ones; one on another server is not
-/// requested.
+/// version, are followed like relative ones. One on another server is not
+/// read as this server's: the mock holds a `Location/loc-far` that must not
+/// reach the stream. (Reads by reference go only to this server's base, so
+/// the sign-in cannot travel to another host this way; the unit test in
+/// src/export.rs covers the base comparison.)
 #[test]
 fn absolute_and_versioned_references_on_this_server_are_read() {
     use serde_json::json;
@@ -1370,7 +1373,9 @@ fn absolute_and_versioned_references_on_this_server_are_read() {
         });
         let prac = json!({"resourceType": "Practitioner", "id": "prac-abs"});
         let org = json!({"resourceType": "Organization", "id": "org-v"});
-        for r in [goal, prac, org] {
+        // What a misread of the other server's reference would fetch here.
+        let far = json!({"resourceType": "Location", "id": "loc-far"});
+        for r in [goal, prac, org, far] {
             let kind = r["resourceType"].as_str().unwrap().to_string();
             let text = r.to_string();
             st.resources.entry(kind).or_default().push((r, text));
@@ -1394,6 +1399,10 @@ fn absolute_and_versioned_references_on_this_server_are_read() {
     ] {
         assert!(ids.iter().any(|i| i == want), "{want} missing from {ids:?}");
     }
+    assert!(
+        !ids.iter().any(|i| i == "Location/loc-far"),
+        "the other server's Location was read here: {ids:?}"
+    );
     assert_eq!(
         mock.get(|st| st.hits.get("Location/loc-far").copied()),
         None
