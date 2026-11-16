@@ -1,8 +1,9 @@
 //! What `records export` asks an Epic organization for, in order: the
-//! patient, every search a patient-facing app may make (Epic splits several
+//! patient, every search mychart's app registers (Epic splits several
 //! resources by category), each `DocumentReference`'s and
 //! `DiagnosticReport`'s `Binary` right after it, then the medications,
-//! practitioners, organizations and locations the records point at.
+//! practitioners, organizations, locations, specimens and media the records
+//! point at, each `Media`'s `Binary` right after it.
 //!
 //! A refused search, an unreadable answer or a file on another server is a
 //! skip in the trailer, never the end of the export; only a sign-in that
@@ -16,12 +17,15 @@ use serde_json::Value;
 
 use crate::fhir::{Failure, Fhir, RawResource, Wire};
 use pk_med_fhir::ReferenceTarget;
-use pk_med_records::{stream::skip::INVALID_REFERENCE, RecordsWriter, Skip};
+use pk_med_records::stream::skip::{FORBIDDEN, INVALID_REFERENCE};
+use pk_med_records::{RecordsWriter, Skip};
 
 /// The searches, as (resource type, extra parameters, whether `--since`
-/// narrows it by `date`). The categories are the ones Epic's
-/// CapabilityStatement documents for each resource; one an organization
-/// does not serve answers 400 and becomes an `unsupported` skip.
+/// narrows it by `date`). The Observation categories are those of the
+/// Observation APIs the app registers (docs/registration.md); Epic answers
+/// a category of an API a client lacks (`LDA`, `periodontal`, …) with 400,
+/// "not valid for any authorized sub-resource". A category an organization
+/// does not serve also answers 400, an `unsupported` skip.
 pub type SearchPlan = (&'static str, &'static [(&'static str, &'static str)], bool);
 
 pub const SEARCHES: &[SearchPlan] = &[
@@ -32,23 +36,6 @@ pub const SEARCHES: &[SearchPlan] = &[
     ("Observation", &[("category", "laboratory")], true),
     ("Observation", &[("category", "vital-signs")], true),
     ("Observation", &[("category", "social-history")], true),
-    ("Observation", &[("category", "core-characteristics")], true),
-    ("Observation", &[("category", "LDA")], true),
-    ("Observation", &[("category", "LDA-property")], true),
-    ("Observation", &[("category", "LDA-assessment")], true),
-    (
-        "Observation",
-        &[("category", "functional-mental-status")],
-        true,
-    ),
-    ("Observation", &[("category", "periodontal")], true),
-    ("Observation", &[("category", "labor-delivery")], true),
-    ("Observation", &[("category", "newborn-delivery")], true),
-    (
-        "Observation",
-        &[("category", "obstetrics-gynecology")],
-        true,
-    ),
     ("Observation", &[("category", "survey")], true),
     ("Observation", &[("category", "sdoh")], true),
     ("Observation", &[("category", "imaging")], true),
@@ -81,19 +68,30 @@ pub const SEARCHES: &[SearchPlan] = &[
     ("QuestionnaireResponse", &[], false),
     ("Device", &[], false),
     ("ServiceRequest", &[], false),
-    ("Specimen", &[], false),
-    ("Media", &[], false),
     ("RelatedPerson", &[], false),
 ];
 
-/// Types read by reference once the searches are done.
+/// Types read by reference once the searches are done. Epic's Specimen and
+/// Media searches take only `_id` ("supports only the _id search
+/// parameter"), so they are read from what names them: `Observation.specimen`
+/// and `ServiceRequest.specimen`, `DiagnosticReport.media`.
 pub const REFERENCED: &[&str] = &[
     "Medication",
     "Practitioner",
     "PractitionerRole",
     "Organization",
     "Location",
+    "Specimen",
+    "Media",
 ];
+
+/// Types whose attachments are fetched as their `Binary`, right after them.
+fn has_files(resource_type: &str) -> bool {
+    matches!(
+        resource_type,
+        "DocumentReference" | "DiagnosticReport" | "Media"
+    )
+}
 
 /// Reads by reference one export makes at most.
 pub const REFERENCE_CAP: usize = 2000;
@@ -163,6 +161,10 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
         if let Some(u) = f["url"].as_str() {
             urls.push(u.to_string());
         }
+    }
+    // Media's `content` is one Attachment.
+    if let Some(u) = v.pointer("/content/url").and_then(Value::as_str) {
+        urls.push(u.to_string());
     }
     urls
 }
@@ -240,6 +242,8 @@ pub fn run<T: Wire, W: std::io::Write>(
 ) -> Result<(), CliError> {
     let mut refs = References::default();
     let mut tried_binaries = HashSet::new();
+    // (type, what the server left out) → the searches it said so in.
+    let mut withheld: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     match fhir.read(&format!("Patient/{patient}")) {
         Ok(p) => {
             if let Ok(v) = p.value() {
@@ -268,15 +272,18 @@ pub fn run<T: Wire, W: std::io::Write>(
             n += 1;
             if let Some(v) = &value {
                 references(v, fhir.base(), &mut refs);
-                if matches!(
-                    r.resource_type.as_str(),
-                    "DocumentReference" | "DiagnosticReport"
-                ) {
+                if has_files(&r.resource_type) {
                     binaries(fhir, w, v, &mut tried_binaries)?;
                 }
             }
             Ok(())
         });
+        for line in &summary.withheld {
+            withheld
+                .entry((resource_type.to_string(), line.clone()))
+                .or_default()
+                .push(search.clone());
+        }
         // Entries on the pages read that were not resources, whether or
         // not a later page failed.
         if summary.malformed > 0 {
@@ -312,6 +319,26 @@ pub fn run<T: Wire, W: std::io::Write>(
         }
     }
 
+    // One skip per thing left out, though Epic repeats it in every search
+    // that touches the sub-resource.
+    // No `search`: records-stream/v1's `search` names a search left out,
+    // and these were served. The reason names them instead.
+    for ((t, line), searches) in withheld {
+        let also = match searches.len() {
+            1 => String::new(),
+            n => format!(" and {} more", n - 1),
+        };
+        w.skip(skip_of(
+            &t,
+            None,
+            None,
+            FORBIDDEN,
+            format!(
+                "the server left out some results of {}{also}: {line}",
+                searches[0]
+            ),
+        ));
+    }
     for ((t, _), reason) in refs.refused {
         w.skip(skip_of(&t, None, None, INVALID_REFERENCE, reason));
     }
@@ -333,7 +360,11 @@ pub fn run<T: Wire, W: std::io::Write>(
         read += 1;
         match fhir.read(&format!("{t}/{id}")) {
             Ok(r) => {
-                w.resource(&r)?;
+                if w.resource(&r)? && has_files(&t) {
+                    if let Ok(v) = r.value() {
+                        binaries(fhir, w, &v, &mut tried_binaries).map_err(Failure::into_error)?;
+                    }
+                }
             }
             Err(Failure::Skip { code, reason }) => {
                 w.skip(skip_of(&t, Some(&id), None, code, reason))

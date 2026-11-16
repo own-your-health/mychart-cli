@@ -390,14 +390,17 @@ fn an_export_is_one_records_stream_with_documents_after_their_references() {
     assert_eq!(counted, trailer_counts);
     let expect = [
         ("AllergyIntolerance", 1),
-        ("Binary", 2),
+        ("Binary", 3),
         ("Condition", 1),
+        ("DiagnosticReport", 1),
         ("DocumentReference", 1),
+        ("Media", 1),
         ("Medication", 1),
         ("MedicationRequest", 1),
         ("Observation", 3),
         ("Patient", 1),
         ("Practitioner", 1),
+        ("Specimen", 1),
     ];
     assert_eq!(
         trailer_counts,
@@ -421,6 +424,14 @@ fn an_export_is_one_records_stream_with_documents_after_their_references() {
     };
     assert!(pos("DocumentReference", "doc-1") < pos("Binary", "bin-pdf-1"));
     assert!(pos("DocumentReference", "doc-1") < pos("Binary", "bin-html-1"));
+    // Specimen and Media are read from what names them, Epic's searches of
+    // them taking only `_id`; a Media's file follows it.
+    assert_eq!(pos("Media", "media-1") + 1, pos("Binary", "bin-media-1"));
+    let hits = |path: &str| mock.get(|st| st.hits.get(path).copied());
+    assert_eq!(hits("Specimen"), None);
+    assert_eq!(hits("Media"), None);
+    assert_eq!(hits("Specimen/spec-1"), Some(1));
+    assert_eq!(hits("Media/media-1"), Some(1));
     assert_eq!(body[0]["resourceType"], "Patient");
     // No other patient's records.
     assert!(body.iter().all(|v| !v.to_string().contains(CHILD_PATIENT)));
@@ -437,7 +448,7 @@ fn an_export_is_one_records_stream_with_documents_after_their_references() {
         skip("Observation?category=sdoh").as_deref(),
         Some("unsupported")
     );
-    assert_eq!(skip("Media").as_deref(), Some("forbidden"));
+    assert_eq!(skip("Device").as_deref(), Some("forbidden"));
 }
 
 #[test]
@@ -648,6 +659,55 @@ fn skips(trailer: &serde_json::Value) -> Vec<(String, String, String)> {
 }
 
 #[test]
+fn results_the_server_withholds_are_one_skip_each() {
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    login(&ctx, "adult1");
+    const OUTSIDE: &str = "Client not authorized for Condition - Outside Record Problems. \
+         Search results of this type have not been included.";
+    const SMARTDATA: &str = "User not authorized for Observation - SmartData Elements. \
+         Search results of this type have not been included.";
+    mock.set(|st| {
+        // Every Condition search, as Epic repeats it in each.
+        st.withhold.push(("Condition".into(), OUTSIDE.into()));
+        st.withhold
+            .push(("Observation?category=laboratory".into(), SMARTDATA.into()));
+    });
+    let (values, _) = export_stream(&ctx, SELF_PATIENT, None);
+    let trailer = values.last().unwrap();
+    assert_eq!(trailer["complete"], true);
+    // What was served is kept.
+    assert_eq!(trailer["counts"]["Condition"], 1);
+    assert_eq!(trailer["counts"]["Observation"], 3);
+    let withheld: Vec<(String, String)> = trailer["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["reason"].as_str().unwrap().contains("left out"))
+        .map(|s| {
+            assert_eq!(s["code"], "forbidden", "{s}");
+            assert!(s.get("id").is_none(), "{s}");
+            // Its searches were served, so it names none as left out.
+            assert!(s.get("search").is_none(), "{s}");
+            let text = |k: &str| s[k].as_str().unwrap().to_string();
+            (text("resource_type"), text("reason"))
+        })
+        .collect();
+    assert_eq!(withheld.len(), 2, "{withheld:?}");
+    assert_eq!(withheld[0].0, "Condition");
+    assert!(withheld[0].1.starts_with(
+        "the server left out some results of Condition?category=problem-list-item and 2 more: "
+    ));
+    assert!(withheld[0].1.contains("Outside Record Problems"));
+    assert_eq!(withheld[1].0, "Observation");
+    assert!(withheld[1]
+        .1
+        .starts_with("the server left out some results of Observation?category=laboratory: "));
+    assert!(withheld[1].1.contains("SmartData Elements"));
+}
+
+#[test]
 fn an_export_goes_past_files_elsewhere_and_answers_that_are_not_fhir() {
     use serde_json::json;
     let mock = MockEpic::start();
@@ -733,7 +793,7 @@ fn a_failing_binary_is_retried_in_place_and_fetched_once() {
     });
     let (values, _) = export_stream(&ctx, SELF_PATIENT, None);
     let trailer = values.last().unwrap();
-    assert_eq!(trailer["counts"]["Binary"], 2);
+    assert_eq!(trailer["counts"]["Binary"], 3);
     assert!(skips(trailer).iter().all(|(t, _, _)| t != "Binary"));
 
     // A file that keeps failing is one skip; doc-1 coming back from the
@@ -745,7 +805,7 @@ fn a_failing_binary_is_retried_in_place_and_fetched_once() {
     });
     let (values, _) = export_stream(&ctx, SELF_PATIENT, None);
     let trailer = values.last().unwrap();
-    assert_eq!(trailer["counts"]["Binary"], 1);
+    assert_eq!(trailer["counts"]["Binary"], 2);
     let binary_skips: Vec<_> = skips(trailer)
         .into_iter()
         .filter(|(t, _, _)| t == "Binary")

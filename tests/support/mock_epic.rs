@@ -79,8 +79,12 @@ pub struct State {
     /// such as `13.50` kept).
     pub resources: HashMap<String, Vec<(Value, String)>>,
     /// Searches refused with a status: `Observation?category=sdoh` or a
-    /// bare type.
+    /// bare type (every search of it, no read).
     pub refuse: Vec<(String, u16)>,
+    /// Searches answered with a `suppressed` warning beside the results, as
+    /// Epic says a sub-resource the client may not read was left out:
+    /// (search as in `refuse`, the warning's `diagnostics`).
+    pub withhold: Vec<(String, String)>,
     pub page_size: usize,
     /// Answers that replace a read's (`Binary/b1`, `Practitioner/p1`):
     /// a status and a body, for the given number of requests.
@@ -179,8 +183,12 @@ impl MockEpic {
             resources: synthetic_resources(),
             refuse: vec![
                 ("Observation?category=sdoh".into(), 400),
-                ("Media".into(), 403),
+                ("Device".into(), 403),
+                // Epic's Specimen and Media searches take only `_id`.
+                ("Specimen".into(), 400),
+                ("Media".into(), 400),
             ],
+            withhold: Vec::new(),
             page_size: 2,
             faults: Vec::new(),
             hits: HashMap::new(),
@@ -751,14 +759,21 @@ fn fhir(
     let id = segs.next().map(str::to_string);
     let all = st.resources.get(&kind).cloned().unwrap_or_default();
     let page_size = st.page_size;
+    let names = |what: &str| match what.split_once("?category=") {
+        Some((t, c)) => t == kind && q.get("category").map(String::as_str) == Some(c),
+        None => what == kind && id.is_none(),
+    };
     let refused = st
         .refuse
         .iter()
-        .find(|(what, _)| match what.split_once("?category=") {
-            Some((t, c)) => *t == kind && q.get("category").map(String::as_str) == Some(c),
-            None => *what == kind && id.is_none(),
-        })
+        .find(|(what, _)| names(what))
         .map(|(_, status)| *status);
+    let withheld: Vec<String> = st
+        .withhold
+        .iter()
+        .filter(|(what, _)| names(what))
+        .map(|(_, text)| text.clone())
+        .collect();
     drop(st);
     let raw = |stream: &mut TcpStream, status: u16, body: &str| {
         respond(
@@ -850,6 +865,12 @@ fn fhir(
                 entries.push(format!(
                     "{{\"resource\": {}, \"search\": {{\"mode\": \"outcome\"}}}}",
                     json!({"resourceType": "OperationOutcome", "issue": [{"severity": "warning", "code": "processing", "details": {"text": "No results were found."}}]})
+                ));
+            }
+            for text in &withheld {
+                entries.push(format!(
+                    "{{\"resource\": {}, \"search\": {{\"mode\": \"outcome\"}}}}",
+                    json!({"resourceType": "OperationOutcome", "issue": [{"severity": "warning", "code": "suppressed", "details": {"text": "The authenticated client's search request applies to a sub-resource that the client is not authorized for. Results of this sub-type will not be returned."}, "diagnostics": text}]})
                 ));
             }
             let body = format!(

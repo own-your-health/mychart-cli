@@ -126,8 +126,8 @@ mychart config set sandbox_client_id <Non-Production Client ID>
 ```
 
 Epic does not say how long a new app takes to reach its sandbox. The
-household's app was still unknown there 85 minutes after **Save & Ready for
-Sandbox** (2026-11-16), and developers report 12 to 24 hours. To check
+household's app reached it about 2 h 50 min to 3 h 20 min after **Save &
+Ready for Sandbox** (2026-11-16); developers report 12 to 24 hours. To check
 without signing in, run `mychart auth login --org sandbox --no-browser`,
 open the URL it prints, and end the command with Ctrl-C. Epic's "OAuth2
 Error" page ("Something went wrong trying to authorize the client") means

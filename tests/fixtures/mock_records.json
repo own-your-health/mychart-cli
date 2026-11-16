@@ -37,6 +37,9 @@
     "resourceType": "Observation",
     "id": "obs-lab-1",
     "status": "final",
+    "specimen": {
+      "reference": "Specimen/spec-1"
+    },
     "category": [
       {
         "coding": [
@@ -319,5 +322,59 @@
     "subject": {
       "reference": "Patient/eSelf0000000000000000001"
     }
+  },
+  {
+    "resourceType": "Specimen",
+    "id": "spec-1",
+    "status": "available",
+    "type": {
+      "text": "Blood"
+    },
+    "subject": {
+      "reference": "Patient/eSelf0000000000000000001"
+    },
+    "collection": {
+      "collectedDateTime": "2026-01-05T08:30:00Z"
+    }
+  },
+  {
+    "resourceType": "DiagnosticReport",
+    "id": "dr-img-1",
+    "status": "final",
+    "code": {
+      "text": "Synthetic imaging study"
+    },
+    "subject": {
+      "reference": "Patient/eSelf0000000000000000001"
+    },
+    "effectiveDateTime": "2026-01-07T11:00:00Z",
+    "media": [
+      {
+        "comment": "Synthetic key image",
+        "link": {
+          "reference": "Media/media-1"
+        }
+      }
+    ]
+  },
+  {
+    "resourceType": "Media",
+    "id": "media-1",
+    "status": "completed",
+    "subject": {
+      "reference": "Patient/eSelf0000000000000000001"
+    },
+    "createdDateTime": "2026-01-07T11:00:00Z",
+    "content": {
+      "contentType": "application/pdf",
+      "url": "Binary/bin-media-1",
+      "title": "Synthetic image.pdf"
+    }
+  },
+  {
+    "resourceType": "Binary",
+    "id": "bin-media-1",
+    "contentType": "application/pdf",
+    "data": "JVBERi0xLjQKJSVFT0YK"
   }
 ]
