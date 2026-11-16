@@ -61,6 +61,24 @@ fn text(v: &Value, pointers: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The most of a document id a file name keeps.
+const MAX_STEM: usize = 100;
+
+/// A file name's part for a document id. An Epic id can run past FHIR's 64
+/// characters (docs/api.md), and a file name past 255 bytes cannot be
+/// written, so a long id keeps its first characters and gains a hash of the
+/// whole id, which keeps two long ids with the same start apart.
+fn file_stem(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let safe = fs_safe(id);
+    if safe.len() <= MAX_STEM {
+        return safe;
+    }
+    let digest = Sha256::digest(id.as_bytes());
+    let hash: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{hash}", &safe[..MAX_STEM - 17])
+}
+
 /// The file extension for a MIME type, and the `verify_download` label.
 pub fn extension(content_type: Option<&str>) -> (&'static str, Option<&'static str>) {
     let ct = content_type
@@ -130,7 +148,7 @@ pub fn documents_of(v: &Value) -> Vec<Listed> {
                 date.as_deref()
                     .map(|d| format!("{}_", fs_safe(d)))
                     .unwrap_or_default(),
-                fs_safe(&d.id)
+                file_stem(&d.id)
             ));
             Listed {
                 document: d,
@@ -347,5 +365,19 @@ mod tests {
         );
         assert_eq!(docs[0].document.category.as_deref(), Some("clinical-note"));
         assert_eq!(docs[0].document.name, "Progress note");
+    }
+
+    #[test]
+    fn a_long_id_keeps_its_start_and_a_hash_in_the_file_name() {
+        assert_eq!(file_stem("doc-1#2"), "doc-1_2");
+        let exact = "a".repeat(MAX_STEM);
+        assert_eq!(file_stem(&exact), exact);
+        let one = format!("{}x", "e".repeat(200));
+        let two = format!("{}y", "e".repeat(200));
+        let (a, b) = (file_stem(&one), file_stem(&two));
+        assert_eq!(a.len(), MAX_STEM);
+        assert!(a.starts_with(&"e".repeat(MAX_STEM - 17)), "{a}");
+        assert_ne!(a, b);
+        assert_eq!(a, file_stem(&one));
     }
 }

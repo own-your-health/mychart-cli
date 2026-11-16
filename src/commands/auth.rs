@@ -247,10 +247,17 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     Ok(())
 }
 
-/// A FHIR `id`: 1 to 64 of `A-Z a-z 0-9 - .`. The patient id goes into
-/// request paths and the Keychain account's name.
+/// The longest patient id a sign-in accepts. FHIR R4 caps an `id` at 64
+/// characters, but an Epic app's default "Use Unconstrained FHIR IDs" lets
+/// ids run longer, and Epic names no upper bound; this one keeps a request
+/// path and the Keychain account's name a reasonable size.
+pub const MAX_ID_LEN: usize = 256;
+
+/// A FHIR `id`'s characters (`A-Z a-z 0-9 - .`), 1 to [`MAX_ID_LEN`] of
+/// them. The patient id goes into request paths and the Keychain account's
+/// name.
 fn is_fhir_id(s: &str) -> bool {
-    (1..=64).contains(&s.len())
+    (1..=MAX_ID_LEN).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
 }
@@ -453,7 +460,16 @@ mod tests {
     fn a_patient_id_must_be_a_fhir_id() {
         assert!(super::is_fhir_id("eq081-VQEgP8drUUqCWzHfw3"));
         assert!(super::is_fhir_id("a.b-1"));
-        for bad in ["", "x/../y", "x?y", "x y", &"a".repeat(65)] {
+        // Longer than FHIR's 64: Epic's unconstrained ids.
+        assert!(super::is_fhir_id(&"a".repeat(65)));
+        assert!(super::is_fhir_id(&"a".repeat(super::MAX_ID_LEN)));
+        for bad in [
+            "",
+            "x/../y",
+            "x?y",
+            "x y",
+            &"a".repeat(super::MAX_ID_LEN + 1),
+        ] {
             assert!(!super::is_fhir_id(bad), "{bad}");
         }
     }

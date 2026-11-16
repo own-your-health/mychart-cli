@@ -35,37 +35,87 @@ confidential, so do not publish yours.
 
 ## 2. Create the app
 
-On **Build Apps**, choose **Create** (or **Create My First App**) and fill in
-the form:
+On **Build Apps**, choose **Create** (or **Create My First App**). The app is
+made in two pages: **Create**, then **Edit**, which opens after the first
+save.
+
+### The Create page
 
 | Field | Value |
 | --- | --- |
 | Application Name | A name your household recognises, for example `Household Records (mychart-cli)`. MyChart shows it on the sign-in consent page ("Which patient do you want <application name> to be able to link to?"). |
-| Application Audience | **Patients** ("For patients and their caretakers authenticating with MyChart"; the others are Clinicians or Administrative Users, and Backend Systems) |
-| Public Documentation URL | Choose `https://` (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
-| Incoming APIs | Every API in the [list below](#apis-to-select). Select nothing else: an ExplanationOfBenefit, ImagingStudy or any other API outside Epic's USCDI v3 list ends automatic distribution to every organization. |
-| Default FHIR Version | **R4** |
-| Redirect URIs | `http://127.0.0.1:7468/callback` and `http://localhost:7468/callback` (exact; Epic compares them character for character) |
-| Is Confidential Client | **Unchecked**. mychart has no server to keep a secret; it registers a per-install key instead (dynamic client registration). |
-| Can Register Dynamic Clients | **Checked**, if the form shows it. |
-| Requires Persistent Access | Unchecked, if shown (it applies to confidential clients). |
-| JWK Set URLs | Leave empty. Dynamic clients send their public key inline. |
-| Enable Auto-download | **Checked** |
-| USCDI version | **USCDI v3** |
-| SMART scope version | Leave the default, if asked. |
-| Summary | `A command-line tool a household uses to download its members' own records from MyChart through Epic's patient-access FHIR API. It only reads. Records stay on the household's computer.` |
+| Application Audience | **Patients** ("For patients and their caretakers authenticating with MyChart"; the others are Clinicians or Administrative Users, and Backend Systems). Leave any use-case radios the page shows at their default. |
+| Automatic Client Distribution | **USCDI v3** (the others are None, USCDI v1 and CMS Patient Access API). The page then says "This app will be automatically downloaded to all qualifying customers upon marking it ready for production." |
+| Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
+| Incoming APIs | Every API in the [list below](#apis-to-select), moved from **Available** to **Selected** with `>>`; the **Search available service list** box filters the list. |
+| Outgoing APIs | None. |
+| Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row). Choose `http://` in the row's scheme list and enter the rest without a scheme: `127.0.0.1:7468/callback`, and in a second row `localhost:7468/callback`. Epic compares them character for character. |
+| Can Register Dynamic Clients ("Will this app register dynamic clients?") | **Checked**. mychart has no server to keep a secret; each install registers its own key instead. |
+| "How will dynamic clients request an access token?" | **JWT Bearer Grant Type** (the default). |
+| Is Confidential Client | **Unchecked**. Its extra settings (Requires Persistent Access, Uses Rolling Refresh Tokens, Can Have Indefinite Access, JWK Set URLs) appear only when it is checked. |
 
-If the form offers the app questionnaire (how the app is funded, whether it
-shares data), answer it: MyChart shows the answers on the consent page, and
-a warning when they are missing. For mychart: funded by the household, no
-data shared or sold, records stay on the household's computer.
+Choose **Save**. The page moves to the app's **Edit** page, with a progress
+bar (Created, Test, Ready).
 
-Choose **Save**. Do **not** choose **Ready for Production** yet: after that,
+### The Edit page
+
+| Field | Value |
+| --- | --- |
+| Client ID, Non-Production Client ID | Shown, not editable. |
+| FHIR version | **R4** (the default). |
+| SMART scope version | **SMART v1** (the default). mychart asks for `openid fhirUser`; Epic adds the scopes of the selected APIs. |
+| FHIR ID generation | **Use Unconstrained FHIR IDs** (the default). Ids can then run past FHIR's 64 characters; mychart accepts them. The other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR Resources", does not limit every resource. |
+| Summary (500 characters at most) | `A command-line tool a household uses to download its members' own records from MyChart through Epic's patient-access FHIR API. It only reads. Records stay on the household's computer.` |
+| Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the household's own records, only reads, keeps them on the household's computer, signs in through the system browser, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
+| Intended Purposes | **Individuals' Access to their EHI** only. |
+| Intended Users | **Individual/Caregiver** only. |
+| Thumbnail, Screenshots, Terms and Conditions URL, Additional Disclosure Info URL | Leave empty. |
+| Request Connection Hub Listing | Not used. |
+| "I accept the terms of use of open.epic." | Tick it before each save; it shows unticked again after the page reloads. |
+
+Choose **Save & Ready for Sandbox**. **My Apps** lists the app as
+**Draft**. Do **not** choose **Save & Ready for Production** yet: after that,
 nothing but redirect URIs and JWK Set URLs can change, and a mistake means a
 new app.
 
-The saved app shows two client ids: **Non-Production Client ID** and
-**Client ID** (production).
+Save before opening the Data Use Questionnaire: **Open Data Use
+Questionnaire** leaves the Edit page, and edits not yet saved there are
+lost.
+
+### The Data Use Questionnaire
+
+**Open Data Use Questionnaire** on the Edit page. Choose the button "I
+understand that customers will have access to my responses and that my
+answers will be shown to users of my app." Two tabs appear,
+"Questionnaire from 5/28/2021" and "Questionnaire from 12/27/2018"; answer
+both. Each question has its own **Save Changes**. Some questions appear only
+after an earlier answer: "No one; data never leaves the user's device" hides
+the 2018 questions on approval, notification and obtaining a record, and
+storing data locally adds "For how long does this app store user data?" and
+"Does this app allow users to delete all of the data that have been stored
+about them?". MyChart shows the answers on the consent page, and a warning
+when they are missing.
+
+What mychart truthfully answers:
+
+| Question (in short) | Answer |
+| --- | --- |
+| Who develops the app | An individual developer |
+| Business associate agreement | None |
+| Source | Open source |
+| Where user data is stored | Locally, on the user's device |
+| Who else can access it | No one |
+| Whether the complete record is available to the user | Yes |
+| Whether the user can delete all of it | Yes |
+| What is kept after the app is deleted | Nothing |
+| Other uses of the data | None |
+| Other individuals' data | None |
+| How long data is stored | Indefinitely: until the user deletes the files |
+| Access log | None |
+
+Do **not** choose **Lock my answers**: locking makes them read-only and
+revokes every token the app holds within 0 to 12 hours. They become
+read-only at Ready for Production anyway.
 
 ## 3. Test in Epic's sandbox
 
@@ -88,8 +138,8 @@ registration. If it did not, the sign-in lasts an hour and the app's
 
 ## 4. Mark it Ready for Production
 
-Open the app on **Build Apps** and choose **Save and Ready for Production**.
-Epic distributes the client id to every US organization that has not turned
+Open the app on **Build Apps**, tick "I accept the terms of use of
+open.epic.", and choose **Save & Ready for Production**. Epic distributes the client id to every US organization that has not turned
 off auto-download, "on a rolling 12-hour cycle". An app deployed to
 production "cannot be deactivated", only deactivated by each organization.
 
@@ -104,87 +154,97 @@ fail with an unknown-client error; wait and try again.
 
 ## APIs to select
 
-Every R4 API on Epic's USCDI v3 auto-download list: 153 APIs, in two groups.
-Nothing can be added after **Ready for Production**, so select both groups.
+Every R4 API on the form whose `autodownload-types` include `USCDIv3` and
+whose `consumer-types` include `Patient`: 165 APIs, in two groups. The form
+keeps both lists in its markup; this list is that set as the form names it
+(2026-11-16). Nothing can be added after **Save & Ready for Production**, so
+select both groups.
 
-### Records the organization keeps (93)
+Epic's guide says only USCDI v3 APIs keep automatic distribution. The form
+counts the two claims APIs, `ExplanationOfBenefit.Read (Claim)` and
+`ExplanationOfBenefit.Search (Claim)`, as USCDI v3, so they are selected.
+`ImagingStudy` is not, and is left out.
 
-- AllergyIntolerance.Read (R4)
-- AllergyIntolerance.Search (R4)
+### Records the organization keeps (95)
+
+- AllergyIntolerance.Read (Patient Chart) (R4)
+- AllergyIntolerance.Search (Patient Chart) (R4)
 - Binary.Read (Clinical Notes) (R4)
-- Binary.Read (Generated CCDA) (R4)
+- Binary.Read (Generated CDAs) (R4)
 - Binary.Read (Labs) (R4)
 - Binary.Read (Study) (R4)
 - Binary.Search (Clinical Notes) (R4)
-- Binary.Search (Generated CCDA) (R4)
+- Binary.Search (Generated CDAs) (R4)
 - Binary.Search (Labs) (R4)
 - Binary.Search (Study) (R4)
-- CarePlan.Read (Encounter-Level) (R4)
+- CarePlan.Read (Encounter) (R4)
 - CarePlan.Read (Longitudinal) (R4)
-- CarePlan.Search (Encounter-Level) (R4)
+- CarePlan.Search (Encounter) (R4)
 - CarePlan.Search (Longitudinal) (R4)
-- CareTeam.Read (Longitudinal) (R4)
-- CareTeam.Search (Longitudinal) (R4)
+- CareTeam.Read (Longitudinal CareTeam) (R4)
+- CareTeam.Search (Longitudinal CareTeam) (R4)
 - Condition.Read (Care Plan Problem) (R4)
 - Condition.Read (Encounter Diagnosis) (R4)
-- Condition.Read (Health Concern) (R4)
+- Condition.Read (Health Concerns) (R4)
 - Condition.Read (Problems) (R4)
 - Condition.Search (Care Plan Problem) (R4)
 - Condition.Search (Encounter Diagnosis) (R4)
-- Condition.Search (Health Concern) (R4)
+- Condition.Search (Health Concerns) (R4)
 - Condition.Search (Problems) (R4)
-- Coverage.Read (R4)
-- Coverage.Search (R4)
+- Coverage.Read (Patient Insurance Information) (R4)
+- Coverage.Search (Patient Insurance Information) (R4)
 - Device.Read (Implants) (R4)
 - Device.Search (Implants) (R4)
 - DiagnosticReport.Read (Results) (R4)
 - DiagnosticReport.Search (Results) (R4)
 - DocumentReference.Read (Clinical Notes) (R4)
-- DocumentReference.Read (Generated CCDA) (R4)
+- DocumentReference.Read (Generated CDAs) (R4)
 - DocumentReference.Read (Labs) (R4)
 - DocumentReference.Search (Clinical Notes) (R4)
-- DocumentReference.Search (Generated CCDA) (R4)
+- DocumentReference.Search (Generated CDAs) (R4)
 - DocumentReference.Search (Labs) (R4)
 - Encounter.Read (Patient Chart) (R4)
 - Encounter.Search (Patient Chart) (R4)
-- Goal.Read (Care Plan) (R4)
+- ExplanationOfBenefit.Read (Claim) (R4)
+- ExplanationOfBenefit.Search (Claim) (R4)
+- Goal.Read (Care Plan Goal) (R4)
 - Goal.Read (Patient) (R4)
-- Goal.Search (Care Plan) (R4)
+- Goal.Search (Care Plan Goal) (R4)
 - Goal.Search (Patient) (R4)
-- Immunization.Read (R4)
-- Immunization.Search (R4)
-- Location.Read (R4)
-- Location.Search (R4)
+- Immunization.Read (Patient Chart) (R4)
+- Immunization.Search (Patient Chart) (R4)
+- Location.Read (Organizational Directory) (R4)
+- Location.Search (Organizational Directory) (R4)
 - Media.Read (Study) (R4)
 - Media.Search (Study) (R4)
-- Medication.Read (R4)
-- Medication.Search (R4)
+- Medication.Read (Organization Med List) (R4)
+- Medication.Search (Organization Med List) (R4)
 - MedicationDispense.Read (Fill Status) (R4)
 - MedicationDispense.Search (Fill Status) (R4)
-- MedicationRequest.Read (Orders) (R4)
-- MedicationRequest.Search (Orders) (R4)
+- MedicationRequest.Read (Signed Medication Order) (R4)
+- MedicationRequest.Search (Signed Medication Order) (R4)
 - Observation.Read (Assessments) (R4)
 - Observation.Read (Labs) (R4)
 - Observation.Read (SDOH Assessments) (R4)
 - Observation.Read (SmartData Elements) (R4)
 - Observation.Read (Social History) (R4)
 - Observation.Read (Study Finding) (R4)
-- Observation.Read (Vitals) (R4)
+- Observation.Read (Vital Signs) (R4)
 - Observation.Search (Assessments) (R4)
 - Observation.Search (Labs) (R4)
 - Observation.Search (SDOH Assessments) (R4)
 - Observation.Search (SmartData Elements) (R4)
 - Observation.Search (Social History) (R4)
 - Observation.Search (Study Finding) (R4)
-- Observation.Search (Vitals) (R4)
-- Organization.Read (R4)
-- Organization.Search (R4)
-- Patient.Read (R4)
-- Patient.Search (R4)
-- Practitioner.Read (R4)
-- Practitioner.Search (R4)
-- PractitionerRole.Read (R4)
-- PractitionerRole.Search (R4)
+- Observation.Search (Vital Signs) (R4)
+- Organization.Read (Organizational Directory) (R4)
+- Organization.Search (Organizational Directory) (R4)
+- Patient.Read (Demographics) (R4)
+- Patient.Search (Demographics) (R4)
+- Practitioner.Read (Organizational Directory) (R4)
+- Practitioner.Search (Organizational Directory) (R4)
+- PractitionerRole.Read (Organizational Directory) (R4)
+- PractitionerRole.Search (Organizational Directory) (R4)
 - Procedure.Read (Orders) (R4)
 - Procedure.Read (SDOH Intervention) (R4)
 - Procedure.Read (Surgeries) (R4)
@@ -196,19 +256,19 @@ Nothing can be added after **Ready for Production**, so select both groups.
 - RelatedPerson.Read (Proxy) (R4)
 - RelatedPerson.Search (Friends and Family) (R4)
 - RelatedPerson.Search (Proxy) (R4)
-- ServiceRequest.Read (Community Resource) (R4)
-- ServiceRequest.Read (Order Procedure) (R4)
-- ServiceRequest.Search (Community Resource) (R4)
-- ServiceRequest.Search (Order Procedure) (R4)
-- Specimen.Read (R4)
-- Specimen.Search (R4)
+- ServiceRequest.Read (Community Resource ServiceRequest) (R4)
+- ServiceRequest.Read (Orders) (R4)
+- ServiceRequest.Search (Community Resource ServiceRequest) (R4)
+- ServiceRequest.Search (Orders) (R4)
+- Specimen.Read (Patient Chart) (R4)
+- Specimen.Search (Patient Chart) (R4)
 
-### Copies other organizations sent ("Outside Record", 60)
+### Copies other organizations sent ("Outside Record", 70)
 
 - AllergyIntolerance.Read (Outside Record) (R4)
 - AllergyIntolerance.Search (Outside Record) (R4)
-- Binary.Read (Outside Record Clinical Notes) (R4)
-- Binary.Search (Outside Record Clinical Notes) (R4)
+- Binary.Read (Outside Record - Clinical Notes) (R4)
+- Binary.Search (Outside Record - Clinical Notes) (R4)
 - CarePlan.Read (Outside Record) (R4)
 - CarePlan.Search (Outside Record) (R4)
 - CareTeam.Read (Outside Record) (R4)
@@ -225,8 +285,8 @@ Nothing can be added after **Ready for Production**, so select both groups.
 - Device.Search (Outside Record) (R4)
 - DiagnosticReport.Read (Outside Record Results) (R4)
 - DiagnosticReport.Search (Outside Record Results) (R4)
-- DocumentReference.Read (Outside Record Clinical Notes) (R4)
-- DocumentReference.Search (Outside Record Clinical Notes) (R4)
+- DocumentReference.Read (Outside Record - Clinical Notes) (R4)
+- DocumentReference.Search (Outside Record - Clinical Notes) (R4)
 - Encounter.Read (Outside Record) (R4)
 - Encounter.Search (Outside Record) (R4)
 - Goal.Read (Outside Record) (R4)
@@ -245,23 +305,33 @@ Nothing can be added after **Ready for Production**, so select both groups.
 - Observation.Read (Outside Record Occupation) (R4)
 - Observation.Read (Outside Record Pregnancy Status) (R4)
 - Observation.Read (Outside Record Results) (R4)
-- Observation.Read (Outside Record SDOH Assessment) (R4)
 - Observation.Read (Outside Record Screening Assessment) (R4)
+- Observation.Read (Outside Record SDOH Assessment) (R4)
 - Observation.Read (Outside Record Sexual Orientation) (R4)
 - Observation.Read (Outside Record Smoking Status) (R4)
-- Observation.Read (Outside Record Vital Sign) (R4)
+- Observation.Read (Outside Record Vital Signs) (R4)
 - Observation.Search (Outside Record Activities of Daily Living) (R4)
 - Observation.Search (Outside Record Occupation) (R4)
 - Observation.Search (Outside Record Pregnancy Status) (R4)
 - Observation.Search (Outside Record Results) (R4)
-- Observation.Search (Outside Record SDOH Assessment) (R4)
 - Observation.Search (Outside Record Screening Assessment) (R4)
+- Observation.Search (Outside Record SDOH Assessment) (R4)
 - Observation.Search (Outside Record Sexual Orientation) (R4)
 - Observation.Search (Outside Record Smoking Status) (R4)
-- Observation.Search (Outside Record Vital Sign) (R4)
+- Observation.Search (Outside Record Vital Signs) (R4)
+- Organization.Read (Outside Record) (R4)
+- Organization.Search (Outside Record) (R4)
+- Practitioner.Read (Outside Record) (R4)
+- Practitioner.Search (Outside Record) (R4)
 - PractitionerRole.Read (Outside Record) (R4)
 - PractitionerRole.Search (Outside Record) (R4)
 - Procedure.Read (Outside Record) (R4)
 - Procedure.Search (Outside Record) (R4)
+- QuestionnaireResponse.Read (Outside Record) (R4)
+- QuestionnaireResponse.Search (Outside Record) (R4)
+- RelatedPerson.Read (Outside Record) (R4)
+- RelatedPerson.Search (Outside Record) (R4)
+- ServiceRequest.Read (Outside Record) (R4)
+- ServiceRequest.Search (Outside Record) (R4)
 - Specimen.Read (Outside Record) (R4)
 - Specimen.Search (Outside Record) (R4)

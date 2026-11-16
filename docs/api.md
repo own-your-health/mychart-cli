@@ -24,8 +24,12 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
 - **Audience**: Patients ("For patients and their caretakers authenticating
   with MyChart").
 - **APIs**: only those on Epic's USCDI v3 list keep automatic distribution
-  (section 3). Selecting `ImagingStudy`, `ExplanationOfBenefit` or any other
-  API outside it ends that for every organization.
+  (section 3). The form tags each API with the distributions it qualifies
+  for (`autodownload-types`, such as `None,CMS,USCDIv1,USCDIv3`) and the
+  audiences it serves (`consumer-types`). By those tags the USCDI v3 set for
+  a patient app is 165 R4 APIs (2026-11-16), and it includes the two claims
+  APIs, `ExplanationOfBenefit.Read (Claim)` and `.Search (Claim)`, which
+  this file once said ended distribution. `ImagingStudy` is not in it.
 - **FHIR version**: R4. `fhirUser` in the id token needs it: "The fhirUser
   claim will only be present if app has the R4 (or greater) SMART on FHIR
   version selected, and requests both the openid and fhirUser scopes"
@@ -166,7 +170,9 @@ app (patient apps):
 - "Does not use refresh tokens OR uses refresh tokens and has a client
   credential uploaded by the vendor for that community member"
 - "Selects "Enable Auto-download" and "USCDI v1" or "USCDI v3" on the app
-  creation page"
+  creation page". The page (2026-11-16) has one control for both, a radio
+  "Automatic Client Distribution" with None, USCDI v1, USCDI v3 and CMS
+  Patient Access API.
 - "Is marked "Ready for Production""
 
 and the organization "Has not disabled auto-download functionality". Also:
@@ -273,6 +279,14 @@ range requests, so a failed download starts over.
   (tutorial). mychart asks for `openid fhirUser` (`config set scope` changes
   it). `offline_access` is not needed: dynamic registration gives the
   persistent access.
+- **Ids can run past 64 characters.** FHIR R4 caps an `id` at 64, but an
+  app's FHIR ID generation defaults to "Use Unconstrained FHIR IDs"; the
+  other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR
+  Resources", leaves other resources unlimited. Epic names no upper bound.
+  mychart accepts 1 to 256 of FHIR's id characters for the patient, as
+  pk-med-fhir does for a read or a `Binary`; a longer one is a skip. A
+  document id over 100 characters is shortened in its file name to its
+  first 83 and 16 hex digits of its SHA-256.
 - **An empty search is not empty**: Epic answers with an `OperationOutcome`
   entry (`search.mode = outcome`, "No results were found"); mychart drops
   it from the stream.
@@ -370,8 +384,9 @@ those bases authorize at 226 and 326. mychart uses Brands.
   records in both signs in to each.
 - **Coverage** comes through mychart: Kaiser's health plan runs in the same
   Epic instance, and `Coverage` is on the USCDI v3 list. **Claims**
-  (`ExplanationOfBenefit`) do not: Kaiser's servers list EOB, but selecting
-  it in the app ends automatic distribution (section 1). Kaiser serves
+  (`ExplanationOfBenefit`): Kaiser's servers list EOB, and the app selects
+  it (section 1), so `records export` asks for it; what Kaiser's Epic
+  answers is not yet seen. Kaiser also serves
   claims from a separate health-plan Patient Access API at
   `kpx-service-bus.kp.org`, which needs its own reviewed registration at
   developer.kp.org; Kaiser: "The health plan API (Patient Access API) is
