@@ -351,7 +351,11 @@ range requests, so a failed download starts over.
   set, no `id` and no `search`, since what a server withholds is part of a
   type's data rather than of one search. The `reason` is the issue's text,
   after the first search that carried it and how many more did. `documents
-  list` prints each as a warning. Epic's other warnings carry no loss and are dropped:
+  list` and `documents download --all` print each as a warning, and their
+  `--json` output (`document-list/v1`, `document-download-batch/v1`) carries
+  the same skips as `withheld`, left out when there are none (DESIGN §1.7;
+  `documents/v1` has no field for it, and a reader that does not know it
+  ignores it). Epic's other warnings carry no loss and are dropped:
   4101 "Resource request returns no results.", 4119 "This response includes
   information available to the authorized user at the time of the
   request…", and 59134 "Processing issues." with "Unable to build the

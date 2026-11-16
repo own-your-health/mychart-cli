@@ -111,7 +111,9 @@ pub fn params(
     p
 }
 
-fn describe(resource_type: &str, params: &[(String, String)]) -> String {
+/// A search as a skip or a note names it: its type and parameters, the
+/// patient left out.
+pub(crate) fn describe(resource_type: &str, params: &[(String, String)]) -> String {
     let q: Vec<String> = params
         .iter()
         .filter(|(k, _)| k != "patient")
@@ -167,6 +169,49 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
         urls.push(u.to_string());
     }
     urls
+}
+
+/// What searches' answers said they left out (pk-med-fhir's `withheld`),
+/// by type and distinct line, with the searches that said it.
+#[derive(Debug, Default)]
+pub struct Withheld(BTreeMap<(String, String), Vec<String>>);
+
+impl Withheld {
+    /// `search`'s withheld lines, `search` as [`describe`] names it.
+    pub fn add(&mut self, resource_type: &str, search: &str, lines: &[String]) {
+        for line in lines {
+            self.0
+                .entry((resource_type.to_string(), line.clone()))
+                .or_default()
+                .push(search.to_string());
+        }
+    }
+
+    /// One `forbidden` skip per type and distinct line, medical-common
+    /// DESIGN §1.4's shape: what a server withholds is part of a type's
+    /// data, not of one search, so no `search` and no `id`; the reason
+    /// names the searches that said so.
+    pub fn skips(self) -> Vec<Skip> {
+        self.0
+            .into_iter()
+            .map(|((t, line), searches)| {
+                let also = match searches.len() {
+                    1 => String::new(),
+                    n => format!(" and {} more", n - 1),
+                };
+                skip_of(
+                    &t,
+                    None,
+                    None,
+                    FORBIDDEN,
+                    format!(
+                        "the server left out some results of {}{also}: {line}",
+                        searches[0]
+                    ),
+                )
+            })
+            .collect()
+    }
 }
 
 /// What an export's resources point at, of the types in [`REFERENCED`] on
@@ -242,8 +287,7 @@ pub fn run<T: Wire, W: std::io::Write>(
 ) -> Result<(), CliError> {
     let mut refs = References::default();
     let mut tried_binaries = HashSet::new();
-    // (type, what the server left out) → the searches it said so in.
-    let mut withheld: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    let mut withheld = Withheld::default();
     match fhir.read(&format!("Patient/{patient}")) {
         Ok(p) => {
             if let Ok(v) = p.value() {
@@ -278,12 +322,7 @@ pub fn run<T: Wire, W: std::io::Write>(
             }
             Ok(())
         });
-        for line in &summary.withheld {
-            withheld
-                .entry((resource_type.to_string(), line.clone()))
-                .or_default()
-                .push(search.clone());
-        }
+        withheld.add(resource_type, &search, &summary.withheld);
         // Entries on the pages read that were not resources, whether or
         // not a later page failed.
         if summary.malformed > 0 {
@@ -321,24 +360,8 @@ pub fn run<T: Wire, W: std::io::Write>(
 
     // One skip per thing left out, though Epic repeats it in every search
     // that touches the sub-resource.
-    // medical-common DESIGN §1.4's shape: what a server withholds is part
-    // of a type's data, not of one search, so no `search`; the reason names
-    // the searches that said so.
-    for ((t, line), searches) in withheld {
-        let also = match searches.len() {
-            1 => String::new(),
-            n => format!(" and {} more", n - 1),
-        };
-        w.skip(skip_of(
-            &t,
-            None,
-            None,
-            FORBIDDEN,
-            format!(
-                "the server left out some results of {}{also}: {line}",
-                searches[0]
-            ),
-        ));
+    for skip in withheld.skips() {
+        w.skip(skip);
     }
     for ((t, _), reason) in refs.refused {
         w.skip(skip_of(&t, None, None, INVALID_REFERENCE, reason));
