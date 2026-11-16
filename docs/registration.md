@@ -119,7 +119,14 @@ read-only at Ready for Production anyway.
 
 ## 3. Test in Epic's sandbox
 
-Epic syncs a new app to its sandbox within about an hour. Then:
+Epic does not say how long a new app takes to reach its sandbox. The
+household's app was still unknown there 85 minutes after **Save & Ready for
+Sandbox** (2026-11-16), and developers report 12 to 24 hours. To check
+without signing in, run `mychart auth login --org sandbox --no-browser`,
+open the URL it prints, and end the command with Ctrl-C. Epic's "OAuth2
+Error" page ("Something went wrong trying to authorize the client") means
+the sandbox does not know the client yet; a MyChart sign-in page means it
+does. Then:
 
 ```sh
 mychart config set sandbox_client_id <Non-Production Client ID>
