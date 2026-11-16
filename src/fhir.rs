@@ -7,8 +7,7 @@
 use pk_cli_core::transport::Transport;
 use pk_cli_core::{block_on, CliError, Reason};
 use pk_cli_secrets::Secret;
-use pk_med_fhir::outcome::printable;
-use pk_med_fhir::{FhirClient, OperationOutcome, RetryPolicy, UNREACHABLE};
+use pk_med_fhir::{FhirClient, RetryPolicy, UNREACHABLE};
 
 use crate::session::Live;
 
@@ -81,25 +80,6 @@ pub struct SearchSummary {
     pub truncated: bool,
     /// Entries left out because they were not FHIR resources.
     pub malformed: usize,
-}
-
-/// The issues of `o` that say results were left out (`suppressed`), each as
-/// its most specific text: `diagnostics`, else `details`.
-fn withheld(o: &OperationOutcome) -> Vec<String> {
-    o.issue
-        .iter()
-        .filter(|i| i.code.as_deref() == Some("suppressed"))
-        .map(|i| {
-            let details = i.details.as_ref();
-            let text = i
-                .diagnostics
-                .clone()
-                .or_else(|| details.and_then(|d| d.text.clone()))
-                .or_else(|| details.and_then(|d| d.coding.iter().find_map(|c| c.display.clone())))
-                .unwrap_or_else(|| "some results were left out".into());
-            printable(&text)
-        })
-        .collect()
 }
 
 /// A transport a FHIR client and its token source can own across a run.
@@ -207,7 +187,7 @@ impl<T: Wire> Fhir<T> {
         let mut stopped = None;
         let result = block_on(self.client.search_pages(resource_type, &params, |page| {
             summary.pages = page.number as usize;
-            for line in page.outcomes.iter().flat_map(withheld) {
+            for line in page.withheld() {
                 if !summary.withheld.contains(&line) {
                     summary.withheld.push(line);
                 }
