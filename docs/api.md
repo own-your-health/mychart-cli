@@ -347,7 +347,9 @@ range requests, so a failed download starts over.
   case), or carry a version (`Organization/o1/_history/2`, read as the
   current resource); pk-med-fhir's `ReferenceTarget` reads all three. One
   on another server, a contained one (`#x`) or a search is not followed and
-  not reported.
+  not reported. One on this server whose id or version FHIR does not allow
+  is not requested: it is one `upstream` skip per distinct reference, which
+  names the type and the id's length, never the id.
 - **`--since`** adds `date=ge<D>` only to the searches whose type Epic
   documents a `date` parameter for: Observation, DiagnosticReport,
   DocumentReference, Encounter, Immunization and Procedure. mychart adds no

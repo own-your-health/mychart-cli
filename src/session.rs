@@ -242,7 +242,9 @@ pub fn login_command(ctx: &Context) -> String {
 /// The stored session for `ctx`, or exit 3 when the Keychain holds none.
 pub fn load(sessions: &dyn SessionStore, ctx: &Context) -> Result<SmartSession, CliError> {
     let stored = sessions.load(&ctx.account()).map_err(|e| {
-        if e.reason() == Some(Reason::CredentialUnreadable) {
+        if e.reason() == Some(Reason::CredentialUnreadable)
+            && e.remedy() != Some(crate::vault::UPDATE_REMEDY)
+        {
             CliError::Auth(e.message().to_string())
                 .because(Reason::CredentialUnreadable)
                 .with_remedy(format!(
@@ -288,12 +290,24 @@ fn ended(ctx: &Context, why: &str) -> CliError {
     .with_remedy(format!("sign in again: `{}`", login_command(ctx)))
 }
 
-/// A renewal's refusal, said for this context. Other errors pass through.
+/// A renewal's refusal, said for this context, and pk-med-smart's generic
+/// "sign in" remedies given as this context's command. Other errors pass
+/// through.
 fn explain(ctx: &Context, e: CliError) -> CliError {
+    use pk_med_smart::remedy;
     if e.is_auth() && e.reason() == Some(Reason::CredentialRefused) {
-        ended(ctx, e.message())
-    } else {
-        e
+        return ended(ctx, e.message());
+    }
+    match e.remedy() {
+        Some(remedy::SIGN_IN) => {
+            let command = format!("run `{}`", login_command(ctx));
+            e.with_remedy(command)
+        }
+        Some(remedy::SIGN_IN_AGAIN) => {
+            let command = format!("sign in again: `{}`", login_command(ctx));
+            e.with_remedy(command)
+        }
+        _ => e,
     }
 }
 
@@ -519,6 +533,38 @@ mod tests {
             fhir_user: None,
             signed_in_at: "2026-01-01T00:00:00Z".into(),
         }
+    }
+
+    /// pk-med-smart's generic remedies become this context's command; a
+    /// refusal is said for the context; other remedies stay.
+    #[test]
+    fn a_generic_sign_in_remedy_names_this_contexts_command() {
+        use pk_med_smart::remedy;
+        let c = ctx("p1", "org-a", Some("adult1"));
+        let login = "`mychart auth login --org org-a --label adult1`";
+        let e = explain(
+            &c,
+            CliError::Auth("not signed in".into()).with_remedy(remedy::SIGN_IN),
+        );
+        assert_eq!(e.remedy(), Some(format!("run {login}").as_str()));
+        let e = explain(
+            &c,
+            CliError::Auth("lapsed".into()).with_remedy(remedy::SIGN_IN_AGAIN),
+        );
+        assert_eq!(e.remedy(), Some(format!("sign in again: {login}").as_str()));
+        let e = explain(
+            &c,
+            CliError::Auth("refused".into())
+                .because(Reason::CredentialRefused)
+                .with_remedy(remedy::SIGN_IN_AGAIN),
+        );
+        assert!(e.to_string().contains("has ended"), "{e}");
+        assert_eq!(e.remedy(), Some(format!("sign in again: {login}").as_str()));
+        let e = explain(
+            &c,
+            CliError::Upstream("busy".into()).with_remedy(remedy::TRY_AGAIN),
+        );
+        assert_eq!(e.remedy(), Some(remedy::TRY_AGAIN));
     }
 
     #[test]

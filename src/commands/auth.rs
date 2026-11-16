@@ -131,7 +131,22 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         eprintln!("ignored an answer that is not this sign-in's: {why}")
     })?;
     let oauth = OAuthClient::new(t.clone(), BIN, version);
-    let mut session = block_on(signin.exchange(&oauth, &client, &code, &org.id, now_u64()))?;
+    let mut session = block_on(signin.exchange(&oauth, &client, &code, &org.id, now_u64()))
+        .map_err(|e| match e.remedy() {
+            // pk-med-smart's generic "sign in again", as this sign-in's command.
+            Some(pk_med_smart::remedy::SIGN_IN | pk_med_smart::remedy::SIGN_IN_AGAIN) => {
+                let label = args
+                    .label
+                    .as_ref()
+                    .map(|l| format!(" --label {l}"))
+                    .unwrap_or_default();
+                e.with_remedy(format!(
+                    "sign in again: `{BIN} auth login --org {}{label}`",
+                    org.id
+                ))
+            }
+            _ => e,
+        })?;
     session.tokens.expires_at = Some(session::expiry(&session.tokens));
     let patient = session.patient.clone().ok_or_else(|| {
         CliError::Upstream(
