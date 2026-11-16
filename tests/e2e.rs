@@ -1348,3 +1348,55 @@ fn a_granted_patient_id_that_is_not_a_fhir_id_is_refused() {
     assert!(ctx.contexts().unwrap().is_empty());
     assert_eq!(mock.get(|st| st.registrations), 0);
 }
+
+/// References written absolute on this server, or with a `_history`
+/// version, are followed like relative ones; one on another server is not
+/// requested.
+#[test]
+fn absolute_and_versioned_references_on_this_server_are_read() {
+    use serde_json::json;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    login(&ctx, "adult1");
+    let base = mock.fhir_base();
+    mock.set(|st| {
+        let me = json!({"reference": format!("Patient/{SELF_PATIENT}")});
+        let goal = json!({
+            "resourceType": "Goal", "id": "goal-refs", "subject": me,
+            "expressedBy": {"reference": format!("{base}/Practitioner/prac-abs")},
+            "addresses": [{"reference": "Organization/org-v/_history/2"}],
+            "outcomeReference": [{"reference": "https://elsewhere.example.org/R4/Location/loc-far"}]
+        });
+        let prac = json!({"resourceType": "Practitioner", "id": "prac-abs"});
+        let org = json!({"resourceType": "Organization", "id": "org-v"});
+        for r in [goal, prac, org] {
+            let kind = r["resourceType"].as_str().unwrap().to_string();
+            let text = r.to_string();
+            st.resources.entry(kind).or_default().push((r, text));
+        }
+    });
+    let (values, _) = export_stream(&ctx, SELF_PATIENT, None);
+    let ids: Vec<String> = values
+        .iter()
+        .filter_map(|v| {
+            Some(format!(
+                "{}/{}",
+                v["resourceType"].as_str()?,
+                v["id"].as_str()?
+            ))
+        })
+        .collect();
+    for want in [
+        "Goal/goal-refs",
+        "Practitioner/prac-abs",
+        "Organization/org-v",
+    ] {
+        assert!(ids.iter().any(|i| i == want), "{want} missing from {ids:?}");
+    }
+    assert_eq!(
+        mock.get(|st| st.hits.get("Location/loc-far").copied()),
+        None
+    );
+    assert_eq!(values.last().unwrap()["complete"], true);
+}
