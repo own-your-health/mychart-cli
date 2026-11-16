@@ -15,6 +15,7 @@ use pk_cli_core::CliError;
 use serde_json::Value;
 
 use crate::fhir::{Failure, Fhir, RawResource, Wire};
+use pk_med_fhir::ReferenceTarget;
 use pk_med_records::{RecordsWriter, Skip};
 
 /// The searches, as (resource type, extra parameters, whether `--since`
@@ -166,22 +167,26 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
     urls
 }
 
-/// Relative references (`Type/id`) to the types in [`REFERENCED`].
-pub fn references(v: &Value, out: &mut BTreeSet<(String, String)>) {
+/// References to the types in [`REFERENCED`] on this server (`base`):
+/// relative (`Type/id`), absolute under `base`, or either with a
+/// `_history` version, as pk-med-fhir's [`ReferenceTarget`] reads them. A
+/// versioned one is read as the current resource. One on another server is
+/// not followed: the sign-in is not sent there.
+pub fn references(v: &Value, base: &str, out: &mut BTreeSet<(String, String)>) {
     match v {
         Value::Object(map) => {
             if let Some(Value::String(r)) = map.get("reference") {
-                if let Some((t, id)) = r.split_once('/') {
-                    if REFERENCED.contains(&t) && !id.is_empty() && !id.contains('/') {
-                        out.insert((t.to_string(), id.to_string()));
-                    }
+                if let Some(t) = ReferenceTarget::parse(r)
+                    .filter(|t| t.is_under(base) && REFERENCED.contains(&t.resource_type))
+                {
+                    out.insert((t.resource_type.to_string(), t.id.to_string()));
                 }
             }
             for v in map.values() {
-                references(v, out);
+                references(v, base, out);
             }
         }
-        Value::Array(a) => a.iter().for_each(|v| references(v, out)),
+        Value::Array(a) => a.iter().for_each(|v| references(v, base, out)),
         _ => {}
     }
 }
@@ -216,7 +221,7 @@ pub fn run<T: Wire, W: std::io::Write>(
         Ok(p) => {
             if let Ok(v) = p.value() {
                 // generalPractitioner, managingOrganization.
-                references(&v, &mut refs);
+                references(&v, fhir.base(), &mut refs);
             }
             w.resource(&p)?;
         }
@@ -239,7 +244,7 @@ pub fn run<T: Wire, W: std::io::Write>(
             }
             n += 1;
             if let Some(v) = &value {
-                references(v, &mut refs);
+                references(v, fhir.base(), &mut refs);
                 if matches!(
                     r.resource_type.as_str(),
                     "DocumentReference" | "DiagnosticReport"
@@ -403,11 +408,30 @@ mod tests {
             "requester": {"reference": "Practitioner/p1"},
             "subject": {"reference": "Patient/x"},
             "performer": [{"actor": {"reference": "Organization/o1"}}],
+            // Absolute on this server (the host in another case), and
+            // versioned: read as the current resource.
+            "recorder": {"reference": "https://FHIR.example.org/R4/Practitioner/p2"},
+            "location": [{"location": {"reference": "Location/l1/_history/3"}}],
+            "asserter": {"reference": "https://fhir.example.org/R4/PractitionerRole/r1/_history/2"},
+            // Another server, a contained resource, a search: not followed.
+            "custodian": {"reference": "https://other.example.org/R4/Organization/o9"},
+            "contained": [{"reference": "#med1"}],
+            "basedOn": [{"reference": "Practitioner?identifier=x"}],
         });
         let mut out = BTreeSet::new();
-        references(&v, &mut out);
+        references(&v, "https://fhir.example.org/R4", &mut out);
         let got: Vec<String> = out.iter().map(|(t, i)| format!("{t}/{i}")).collect();
-        assert_eq!(got, ["Medication/m1", "Organization/o1", "Practitioner/p1"]);
+        assert_eq!(
+            got,
+            [
+                "Location/l1",
+                "Medication/m1",
+                "Organization/o1",
+                "Practitioner/p1",
+                "Practitioner/p2",
+                "PractitionerRole/r1"
+            ]
+        );
     }
 
     #[test]

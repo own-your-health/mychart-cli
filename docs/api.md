@@ -340,6 +340,14 @@ range requests, so a failed download starts over.
   which can differ in case from the directory's; mychart compares origins
   without case and follows no link to another host. An attachment URL on
   another host is a `no_file` skip; the token is not sent there.
+- **References** to a Medication, Practitioner, PractitionerRole,
+  Organization or Location are read after the searches, up to 2000 per
+  export. A reference may be relative (`Practitioner/p1`), absolute on
+  this server (`https://<base>/Practitioner/p1`, host compared without
+  case), or carry a version (`Organization/o1/_history/2`, read as the
+  current resource); pk-med-fhir's `ReferenceTarget` reads all three. One
+  on another server, a contained one (`#x`) or a search is not followed and
+  not reported.
 - **`--since`** adds `date=ge<D>` only to the searches whose type Epic
   documents a `date` parameter for: Observation, DiagnosticReport,
   DocumentReference, Encounter, Immunization and Procedure. mychart adds no
