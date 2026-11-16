@@ -346,10 +346,12 @@ range requests, so a failed download starts over.
   issue names one the patient's account may not see ("Observation -
   SmartData Elements" in the sandbox). Epic repeats an issue in every
   search that touches the sub-resource. mychart keeps what was served and
-  makes each distinct issue one `forbidden` skip per export. The skip has no
-  `search`, which records-stream/v1 keeps for a search left out; its
-  `reason` names the first search and how many more said the same. `documents list` prints
-  each as a warning. Epic's other warnings carry no loss and are dropped:
+  makes each distinct issue one `forbidden` skip per export, the shape
+  medical-common's DESIGN §1.4 sets for withheld results: `resource_type`
+  set, no `id` and no `search`, since what a server withholds is part of a
+  type's data rather than of one search. The `reason` is the issue's text,
+  after the first search that carried it and how many more did. `documents
+  list` prints each as a warning. Epic's other warnings carry no loss and are dropped:
   4101 "Resource request returns no results.", 4119 "This response includes
   information available to the authorized user at the time of the
   request…", and 59134 "Processing issues." with "Unable to build the
