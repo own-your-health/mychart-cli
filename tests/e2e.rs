@@ -680,7 +680,7 @@ fn results_the_server_withholds_are_one_skip_each() {
     // What was served is kept.
     assert_eq!(trailer["counts"]["Condition"], 1);
     assert_eq!(trailer["counts"]["Observation"], 3);
-    let withheld: Vec<(String, String, String)> = trailer["skipped"]
+    let withheld: Vec<(String, String)> = trailer["skipped"]
         .as_array()
         .unwrap()
         .iter()
@@ -688,19 +688,23 @@ fn results_the_server_withholds_are_one_skip_each() {
         .map(|s| {
             assert_eq!(s["code"], "forbidden", "{s}");
             assert!(s.get("id").is_none(), "{s}");
+            // Its searches were served, so it names none as left out.
+            assert!(s.get("search").is_none(), "{s}");
             let text = |k: &str| s[k].as_str().unwrap().to_string();
-            (text("resource_type"), text("search"), text("reason"))
+            (text("resource_type"), text("reason"))
         })
         .collect();
     assert_eq!(withheld.len(), 2, "{withheld:?}");
     assert_eq!(withheld[0].0, "Condition");
-    assert_eq!(withheld[0].1, "Condition?category=problem-list-item");
-    assert!(withheld[0].2.contains("Outside Record Problems"));
-    assert!(withheld[0].2.ends_with("(and in 2 more searches)"));
+    assert!(withheld[0].1.starts_with(
+        "the server left out some results of Condition?category=problem-list-item and 2 more: "
+    ));
+    assert!(withheld[0].1.contains("Outside Record Problems"));
     assert_eq!(withheld[1].0, "Observation");
-    assert_eq!(withheld[1].1, "Observation?category=laboratory");
-    assert!(withheld[1].2.contains("SmartData Elements"));
-    assert!(!withheld[1].2.contains("more searches"));
+    assert!(withheld[1]
+        .1
+        .starts_with("the server left out some results of Observation?category=laboratory: "));
+    assert!(withheld[1].1.contains("SmartData Elements"));
 }
 
 #[test]

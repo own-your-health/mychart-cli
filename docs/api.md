@@ -255,7 +255,7 @@ Documents are `DocumentReference` + `Binary`:
   the "data" element. Alternatively, if one of those Accept header values is
   not specified, the raw content is returned directly". mychart always asks
   for the FHIR form; the stream carries the Binary resource right after the
-  DocumentReference or DiagnosticReport naming it.
+  DocumentReference, DiagnosticReport or Media naming it.
 
 Imaging: `ImagingStudy` is not on the USCDI v3 auto-download list, so
 mychart's app does not select it. The list has `Binary (Study)`, `Media
@@ -346,8 +346,9 @@ range requests, so a failed download starts over.
   issue names one the patient's account may not see ("Observation -
   SmartData Elements" in the sandbox). Epic repeats an issue in every
   search that touches the sub-resource. mychart keeps what was served and
-  makes each distinct issue one `forbidden` skip per export: the skip names
-  the first search and how many more said the same. `documents list` prints
+  makes each distinct issue one `forbidden` skip per export. The skip has no
+  `search`, which records-stream/v1 keeps for a search left out; its
+  `reason` names the first search and how many more said the same. `documents list` prints
   each as a warning. Epic's other warnings carry no loss and are dropped:
   4101 "Resource request returns no results.", 4119 "This response includes
   information available to the authorized user at the time of the
@@ -412,7 +413,9 @@ range requests, so a failed download starts over.
   400 for the whole search. The Patient, the other searches and the reads by
   reference are not bounded; the stream header names their types in
   `since_unbounded`, so a reader knows they may hold older resources. A
-  `Binary` comes only from a dated `DocumentReference` or `DiagnosticReport`.
+  `Binary` comes from a dated `DocumentReference` or `DiagnosticReport`, and
+  from the `content` of a `Media` read by reference, which `--since` does
+  not bound.
 - **Transient failures**: a request is sent at most three times when it gets
   no answer (the transport waits a minute for one), a 429, a 5xx or an HTML
   403: 1 then 2 seconds apart, or as long as `Retry-After` asks up to 30

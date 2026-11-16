@@ -321,17 +321,22 @@ pub fn run<T: Wire, W: std::io::Write>(
 
     // One skip per thing left out, though Epic repeats it in every search
     // that touches the sub-resource.
+    // No `search`: records-stream/v1's `search` names a search left out,
+    // and these were served. The reason names them instead.
     for ((t, line), searches) in withheld {
         let also = match searches.len() {
             1 => String::new(),
-            n => format!(" (and in {} more searches)", n - 1),
+            n => format!(" and {} more", n - 1),
         };
         w.skip(skip_of(
             &t,
             None,
-            searches.into_iter().next(),
+            None,
             FORBIDDEN,
-            format!("the server left out some results: {line}{also}"),
+            format!(
+                "the server left out some results of {}{also}: {line}",
+                searches[0]
+            ),
         ));
     }
     for ((t, _), reason) in refs.refused {
