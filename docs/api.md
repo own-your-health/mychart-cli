@@ -28,8 +28,9 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   for (`autodownload-types`, such as `None,CMS,USCDIv1,USCDIv3`) and the
   audiences it serves (`consumer-types`). By those tags the USCDI v3 set for
   a patient app is 165 R4 APIs (2026-11-16), and it includes the two claims
-  APIs, `ExplanationOfBenefit.Read (Claim)` and `.Search (Claim)`, which
-  this file once said ended distribution. `ImagingStudy` is not in it.
+  APIs, `ExplanationOfBenefit.Read (Claim)` and `.Search (Claim)`.
+  `ImagingStudy` is not in it. Section 3 has why the claims APIs are
+  uncertain.
 - **FHIR version**: R4. `fhirUser` in the id token needs it: "The fhirUser
   claim will only be present if app has the R4 (or greater) SMART on FHIR
   version selected, and requests both the openid and fhirUser scopes"
@@ -185,6 +186,30 @@ unknown-client error.
 mychart's app uses no refresh tokens (the JWT-bearer grant is not one), so
 it meets the condition; the docs do not say outright how a dynamic client
 is counted.
+
+**Claims and USCDI v3: Epic's lists disagree** (read 2026-11-16):
+
+- The registration form tags `ExplanationOfBenefit.Read (Claim)` and
+  `.Search (Claim)` with `USCDIv3` in `autodownload-types`, and Epic's API
+  catalog (`https://fhir.epic.com/Specifications/Selections`) gives both
+  `"IsUSCDI": true` and `"API_TypeName": "USCDI"`.
+- The patient-facing apps guide's appendix, "In addition to the USCDI v1
+  FHIR APIs above, the following FHIR APIs qualify for USCDI v3
+  auto-distribution", does not name ExplanationOfBenefit. The guide puts
+  it on a separate path, "Automatic Client ID Distribution: CMS Payer
+  Apps", for an app that "Uses only ExplanationOfBenefit … and/or any FHIR
+  APIs … from the list in the appendix" and selects "CMS Patient Access
+  API", at an organization "marked to use CMS Payer APIs in their open.epic
+  licensing agreement".
+- Epic on the claims API: "Subject to configuration by the organization,
+  this API can return resources built from pending claims, or claims
+  processed or paid by an external organization. Resource information for
+  these claims might be unverified, incomplete, or duplicative."
+
+The household's app selects them. Distribution shows only in production:
+an organization's authorize URL with the production client id answers
+with its MyChart sign-in page when it knows the app and an OAuth error page
+when it does not ([registration.md](registration.md), step 4).
 
 ## 4. Proxy access (a parent and a child)
 

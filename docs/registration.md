@@ -152,6 +152,14 @@ mychart auth login --org <ID> --label <WHO>
 A sign-in at an organization within 12 hours of marking the app ready can
 fail with an unknown-client error; wait and try again.
 
+To check that the client id reached an organization without signing in,
+open the authorize URL that `mychart auth login --org <ID> --no-browser`
+prints and close it at the next page: the organization's MyChart sign-in
+page means it knows the app, and an OAuth error page means it does not. If
+it still does not 24 hours after Ready for Production, the claims APIs
+(above) are the first suspect: a new app without them is the remedy, since
+an app's APIs cannot change after production.
+
 ## APIs to select
 
 Every R4 API on the form whose `autodownload-types` include `USCDIv3` and
@@ -160,10 +168,14 @@ keeps both lists in its markup; this list is that set as the form names it
 (2026-11-16). Nothing can be added after **Save & Ready for Production**, so
 select both groups.
 
-Epic's guide says only USCDI v3 APIs keep automatic distribution. The form
-counts the two claims APIs, `ExplanationOfBenefit.Read (Claim)` and
-`ExplanationOfBenefit.Search (Claim)`, as USCDI v3, so they are selected.
-`ImagingStudy` is not, and is left out.
+The two claims APIs, `ExplanationOfBenefit.Read (Claim)` and
+`ExplanationOfBenefit.Search (Claim)`, are in the set, and Epic's own lists
+disagree about them: the form and Epic's API catalog count them as USCDI,
+while the appendix of Epic's patient-facing apps guide does not name them
+([api.md](api.md), section 3). They are selected. Whether the app still
+reaches organizations by itself shows only after **Save & Ready for
+Production**; step 4 says how to check. `ImagingStudy` is not in the set,
+and is left out.
 
 ### Records the organization keeps (95)
 
