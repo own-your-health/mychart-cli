@@ -119,6 +119,12 @@ read-only at Ready for Production anyway.
 
 ## 3. Test in Epic's sandbox
 
+Set the sandbox's client id first:
+
+```sh
+mychart config set sandbox_client_id <Non-Production Client ID>
+```
+
 Epic does not say how long a new app takes to reach its sandbox. The
 household's app was still unknown there 85 minutes after **Save & Ready for
 Sandbox** (2026-11-16), and developers report 12 to 24 hours. To check
@@ -129,7 +135,6 @@ the sandbox does not know the client yet; a MyChart sign-in page means it
 does. Then:
 
 ```sh
-mychart config set sandbox_client_id <Non-Production Client ID>
 mychart auth login --org sandbox --label test
 mychart patients list
 mychart records export --org sandbox --patient test --ndjson | head -c 300
