@@ -321,8 +321,9 @@ pub fn run<T: Wire, W: std::io::Write>(
 
     // One skip per thing left out, though Epic repeats it in every search
     // that touches the sub-resource.
-    // No `search`: records-stream/v1's `search` names a search left out,
-    // and these were served. The reason names them instead.
+    // medical-common DESIGN §1.4's shape: what a server withholds is part
+    // of a type's data, not of one search, so no `search`; the reason names
+    // the searches that said so.
     for ((t, line), searches) in withheld {
         let also = match searches.len() {
             1 => String::new(),
