@@ -1617,8 +1617,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-fhir"
-version = "0.4.7"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.4.7#22213dbc48b3c494b5ed5cb002690be476d0ddef"
+version = "0.4.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.4.8#0e8eb16047b48bb50a98e1266e5b4bb2a931c21d"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-core",
@@ -1629,8 +1629,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-records"
-version = "0.4.7"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.4.7#22213dbc48b3c494b5ed5cb002690be476d0ddef"
+version = "0.4.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.4.8#0e8eb16047b48bb50a98e1266e5b4bb2a931c21d"
 dependencies = [
  "pk-cli-core",
  "pk-med-fhir",
@@ -1640,8 +1640,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-smart"
-version = "0.4.7"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.4.7#22213dbc48b3c494b5ed5cb002690be476d0ddef"
+version = "0.4.8"
+source = "git+https://github.com/piekstra/medical-common?tag=v0.4.8#0e8eb16047b48bb50a98e1266e5b4bb2a931c21d"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.4.3",

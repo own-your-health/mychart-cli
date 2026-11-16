@@ -15,8 +15,8 @@ use pk_cli_core::CliError;
 use serde_json::Value;
 
 use crate::fhir::{Failure, Fhir, RawResource, Wire};
-use pk_med_fhir::{normalize_base, ReferenceTarget};
-use pk_med_records::{RecordsWriter, Skip};
+use pk_med_fhir::ReferenceTarget;
+use pk_med_records::{stream::skip::INVALID_REFERENCE, RecordsWriter, Skip};
 
 /// The searches, as (resource type, extra parameters, whether `--since`
 /// narrows it by `date`). The categories are the ones Epic's
@@ -167,12 +167,6 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
     urls
 }
 
-/// The skip code for a reference whose id or version FHIR does not allow:
-/// the organization's own data, so no retry helps. `records-stream/v1`
-/// codes are an open set (pk-med-records' `skip` module lists the shared
-/// ones).
-pub const INVALID_REFERENCE: &str = "invalid_reference";
-
 /// What an export's resources point at, of the types in [`REFERENCED`] on
 /// this server.
 #[derive(Debug, Default)]
@@ -202,7 +196,7 @@ pub fn references(v: &Value, base: &str, out: &mut References) {
                         }
                     }
                     Err(refused) => {
-                        if REFERENCED.contains(&refused.resource_type) && on_server(r, base) {
+                        if REFERENCED.contains(&refused.resource_type) && refused.is_under(base) {
                             out.refused
                                 .entry((refused.resource_type.to_string(), refused.id.to_string()))
                                 .or_insert_with(|| refused.to_string());
@@ -218,12 +212,6 @@ pub fn references(v: &Value, base: &str, out: &mut References) {
         Value::Array(a) => a.iter().for_each(|v| references(v, base, out)),
         _ => {}
     }
-}
-
-/// Whether a reference is relative, or absolute under `base`.
-fn on_server(reference: &str, base: &str) -> bool {
-    !reference.contains("://")
-        || normalize_base(reference).starts_with(&format!("{}/", normalize_base(base)))
 }
 
 fn skip_of(
