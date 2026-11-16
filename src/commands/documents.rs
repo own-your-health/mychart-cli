@@ -12,6 +12,7 @@ use pk_cli_core::{output, CliError};
 use pk_cli_documents::{
     fs_safe, verify_download, DownloadBatch, Paged, SavedDocument, SkippedDocument,
 };
+use pk_med_records::Skip;
 use serde_json::Value;
 
 use super::{transport, Ctx};
@@ -22,10 +23,17 @@ pub fn run(ctx: &Ctx, cmd: &DocumentsCmd) -> Result<(), CliError> {
     match cmd {
         DocumentsCmd::List { who, range } => {
             range.validate()?;
-            let docs = list(ctx, who, range)?;
-            let mut page = Paged::new("document", docs.into_iter().map(|d| d.document).collect());
+            let found = list(ctx, who, range)?;
+            let mut page = Paged::new(
+                "document",
+                found.documents.into_iter().map(|d| d.document).collect(),
+            );
             page.total = Some(page.items.len() as u64);
-            page.emit(ctx.json());
+            if ctx.json() {
+                output::json(&with_withheld(super::to_json(&page)?, &found.withheld)?);
+            } else {
+                page.emit(false);
+            }
             Ok(())
         }
         DocumentsCmd::Download {
@@ -43,6 +51,24 @@ pub fn run(ctx: &Ctx, cmd: &DocumentsCmd) -> Result<(), CliError> {
             }
         }
     }
+}
+
+/// What `documents list` found: the documents, and what the server said it
+/// left out of the searches.
+pub struct Found {
+    pub documents: Vec<Listed>,
+    /// medical-common DESIGN §1.4's `forbidden` skips, which §1.7 carries as
+    /// `withheld` in `document-list/v1` and `document-download-batch/v1`.
+    pub withheld: Vec<Skip>,
+}
+
+/// `dto` with `withheld` (DESIGN §1.7), unless there is none. `documents/v1`
+/// has no field for it; a reader that does not know it ignores it.
+fn with_withheld(mut dto: Value, withheld: &[Skip]) -> Result<Value, CliError> {
+    if !withheld.is_empty() {
+        dto["withheld"] = super::to_json(&withheld)?;
+    }
+    Ok(dto)
 }
 
 /// A listed document and where its bytes are.
@@ -170,7 +196,7 @@ pub fn list(
     ctx: &Ctx,
     who: &PatientArgs,
     range: &pk_cli_documents::RangeArgs,
-) -> Result<Vec<Listed>, CliError> {
+) -> Result<Found, CliError> {
     let c = ctx.signed_in(who)?;
     let t = transport()?;
     let live = ctx.live(&t, &c)?;
@@ -184,10 +210,11 @@ fn list_in<T: crate::fhir::Wire>(
     fhir: &Fhir<T>,
     patient: &str,
     range: &pk_cli_documents::RangeArgs,
-) -> Result<Vec<Listed>, CliError> {
+) -> Result<Found, CliError> {
     let mut out: Vec<Listed> = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut withheld = std::collections::BTreeSet::new();
+    let mut warned = std::collections::BTreeSet::new();
+    let mut withheld = crate::export::Withheld::default();
     for extra in [&[("category", "clinical-note")][..], &[][..]] {
         let mut params = vec![("patient".to_string(), patient.to_string())];
         params.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
@@ -205,8 +232,13 @@ fn list_in<T: crate::fhir::Wire>(
                 summary.malformed
             ));
         }
+        withheld.add(
+            "DocumentReference",
+            &crate::export::describe("DocumentReference", &params),
+            &summary.withheld,
+        );
         for line in summary.withheld {
-            if withheld.insert(line.clone()) {
+            if warned.insert(line.clone()) {
                 ctx.note(format!(
                     "warning: the server left out some DocumentReference results: {line}"
                 ));
@@ -230,7 +262,10 @@ fn list_in<T: crate::fhir::Wire>(
     if let Some(n) = range.limit {
         out.truncate(n as usize);
     }
-    Ok(out)
+    Ok(Found {
+        documents: out,
+        withheld: withheld.skips(),
+    })
 }
 
 /// Fetch one document's bytes and check they are what its type says.
@@ -277,7 +312,7 @@ fn download_one(ctx: &Ctx, who: &PatientArgs, id: &str, output: &Path) -> Result
     let t = transport()?;
     let live = ctx.live(&t, &c)?;
     let fhir = Fhir::new(&t, &live)?;
-    let docs = list_in(ctx, &fhir, &c.id, &pk_cli_documents::RangeArgs::default())?;
+    let docs = list_in(ctx, &fhir, &c.id, &pk_cli_documents::RangeArgs::default())?.documents;
     let Some(d) = docs.iter().find(|d| d.document.id == id) else {
         return Err(
             CliError::NotFound(format!("no document `{id}` for this patient"))
@@ -309,7 +344,8 @@ fn download_all(
     let t = transport()?;
     let live = ctx.live(&t, &c)?;
     let fhir = Fhir::new(&t, &live)?;
-    let docs = list_in(ctx, &fhir, &c.id, range)?;
+    let found = list_in(ctx, &fhir, &c.id, range)?;
+    let docs = found.documents;
     crate::fsutil::create_private_dir(dir)?;
     let (mut saved, mut skipped) = (Vec::new(), Vec::new());
     for d in &docs {
@@ -331,7 +367,7 @@ fn download_all(
     }
     let batch = DownloadBatch::new(dir.display().to_string(), saved).with_skipped(skipped);
     if ctx.json() {
-        output::json(&super::to_json(&batch)?);
+        output::json(&with_withheld(super::to_json(&batch)?, &found.withheld)?);
     } else {
         println!(
             "saved {} documents to {} ({} skipped)",
@@ -346,6 +382,25 @@ fn download_all(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn withheld_is_added_to_the_output_only_when_there_is_some() {
+        let dto = serde_json::json!({"schema": "document-list/v1", "items": []});
+        assert_eq!(with_withheld(dto.clone(), &[]).unwrap(), dto);
+        let skip = Skip {
+            resource_type: Some("DocumentReference".into()),
+            id: None,
+            search: None,
+            reason: "left out".into(),
+            code: "forbidden".into(),
+        };
+        let out = with_withheld(dto, &[skip]).unwrap();
+        assert_eq!(out["schema"], "document-list/v1");
+        assert_eq!(
+            out["withheld"],
+            serde_json::json!([{"resource_type": "DocumentReference", "reason": "left out", "code": "forbidden"}])
+        );
+    }
 
     #[test]
     fn each_attachment_is_a_document_named_safely() {

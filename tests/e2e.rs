@@ -560,8 +560,9 @@ fn documents_list_and_download_verify_the_bytes() {
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
     let who = mychart::cli::PatientArgs::default();
-    let docs =
-        commands::documents::list(&ctx, &who, &pk_cli_documents::RangeArgs::default()).unwrap();
+    let docs = commands::documents::list(&ctx, &who, &pk_cli_documents::RangeArgs::default())
+        .unwrap()
+        .documents;
     let ids: Vec<&str> = docs.iter().map(|d| d.document.id.as_str()).collect();
     assert_eq!(ids, ["doc-1", "doc-1#2"]);
     assert_eq!(docs[0].document.date.as_deref(), Some("2026-01-06"));
@@ -705,6 +706,35 @@ fn results_the_server_withholds_are_one_skip_each() {
         .1
         .starts_with("the server left out some results of Observation?category=laboratory: "));
     assert!(withheld[1].1.contains("SmartData Elements"));
+}
+
+#[test]
+fn documents_list_carries_what_the_server_withheld() {
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    login(&ctx, "adult1");
+    const NOTES: &str = "Client not authorized for DocumentReference - Outside Record - \
+         Clinical Notes. Search results of this type have not been included.";
+    // Both DocumentReference searches, as Epic repeats it.
+    mock.set(|st| st.withhold.push(("DocumentReference".into(), NOTES.into())));
+    let who = mychart::cli::PatientArgs::default();
+    let found =
+        commands::documents::list(&ctx, &who, &pk_cli_documents::RangeArgs::default()).unwrap();
+    // What was served is listed.
+    assert_eq!(found.documents.len(), 2);
+    let withheld = serde_json::to_value(&found.withheld).unwrap();
+    assert_eq!(
+        withheld,
+        serde_json::json!([{
+            "resource_type": "DocumentReference",
+            "reason": format!(
+                "the server left out some results of \
+                 DocumentReference?category=clinical-note and 1 more: {NOTES}"
+            ),
+            "code": "forbidden",
+        }])
+    );
 }
 
 #[test]
