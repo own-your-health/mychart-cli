@@ -12,12 +12,12 @@ use pk_cli_core::{CliError, Reason};
 use pk_cli_secrets::{CredentialStore, Secret};
 use pk_med_smart::{decode_session, SessionStore, SmartSession, SESSION_FORMAT};
 
-/// What to do about a stored sign-in that does not read.
 /// For an item a newer mychart stored: a sign-in with this release would
 /// replace it with an older shape.
 pub const UPDATE_REMEDY: &str = "update mychart with `mychart self-update`: a newer mychart \
      stored this sign-in";
 
+/// What to do about a stored sign-in that does not read.
 pub const UNREADABLE_REMEDY: &str = "sign in again with `mychart auth login --org <ORG>`; the new \
      sign-in replaces it (a sign-in mychart 0.1 stored does not read in 0.2)";
 

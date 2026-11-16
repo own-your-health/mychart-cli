@@ -153,6 +153,9 @@ the account `smart/<organization>/<patient>`. mychart 0.1 stored its own
 shape under the same account. 0.2 does not read it: `auth status` lists it
 with `status.unreadable`, any command for that patient exits 3 with the
 `auth login` command that replaces it, and `auth logout` deletes it unread.
+An item a newer mychart stored (a higher `format`) also exits 3, but says
+to run `mychart self-update`: a sign-in would overwrite it with an older
+shape.
 
 Epic's guidelines: an app holding persistent access without a BAA "informs
 the patient user of the period of time for which the app is seeking
@@ -330,6 +333,7 @@ range requests, so a failed download starts over.
   | 404, 410, or an issue `not-found` or `deleted` | `not_found` skip |
   | another 4xx | `unsupported` skip |
   | 429, 5xx or an HTML 403 (an edge, not the server) after its retries; a body that is not the FHIR asked for | `upstream` skip |
+  | a reference (on this server, to a followed type) whose id or version FHIR does not allow | `invalid_reference` skip, never requested; the organization's data, so the same on every export and not worth a retry |
   | no answer after its retries | stop, exit 5 |
 
   A search is written page by page as it is read (pk-med-fhir's
@@ -348,8 +352,10 @@ range requests, so a failed download starts over.
   current resource); pk-med-fhir's `ReferenceTarget` reads all three. One
   on another server, a contained one (`#x`) or a search is not followed and
   not reported. One on this server whose id or version FHIR does not allow
-  is not requested: it is one `upstream` skip per distinct reference, which
-  names the type and the id's length, never the id.
+  is not requested: it is one `invalid_reference` skip per distinct
+  reference, which names the type and the id's length, never the id.
+  `records-stream/v1` skip codes are an open set, and a reader treats one
+  it does not know as a skip like any other.
 - **`--since`** adds `date=ge<D>` only to the searches whose type Epic
   documents a `date` parameter for: Observation, DiagnosticReport,
   DocumentReference, Encounter, Immunization and Procedure. mychart adds no

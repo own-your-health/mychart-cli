@@ -1437,11 +1437,15 @@ fn a_reference_with_an_id_fhir_does_not_allow_is_a_skip() {
     assert_eq!(trailer["complete"], true);
     let refused: Vec<_> = skips(trailer)
         .into_iter()
-        .filter(|(t, _, code)| t == "Practitioner" && code == "upstream")
+        .filter(|(t, _, code)| t == "Practitioner" && code == "invalid_reference")
         .collect();
     assert_eq!(
         refused,
-        [("Practitioner".into(), String::new(), "upstream".into())]
+        [(
+            "Practitioner".into(),
+            String::new(),
+            "invalid_reference".into()
+        )]
     );
     assert!(!lines.last().unwrap().contains("has space"));
     assert_eq!(

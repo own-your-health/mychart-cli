@@ -167,6 +167,12 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
     urls
 }
 
+/// The skip code for a reference whose id or version FHIR does not allow:
+/// the organization's own data, so no retry helps. `records-stream/v1`
+/// codes are an open set (pk-med-records' `skip` module lists the shared
+/// ones).
+pub const INVALID_REFERENCE: &str = "invalid_reference";
+
 /// What an export's resources point at, of the types in [`REFERENCED`] on
 /// this server.
 #[derive(Debug, Default)]
@@ -319,7 +325,7 @@ pub fn run<T: Wire, W: std::io::Write>(
     }
 
     for ((t, _), reason) in refs.refused {
-        w.skip(skip_of(&t, None, None, "upstream", reason));
+        w.skip(skip_of(&t, None, None, INVALID_REFERENCE, reason));
     }
     let mut read = 0;
     for (t, id) in refs.read {
