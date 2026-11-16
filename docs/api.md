@@ -24,8 +24,13 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
 - **Audience**: Patients ("For patients and their caretakers authenticating
   with MyChart").
 - **APIs**: only those on Epic's USCDI v3 list keep automatic distribution
-  (section 3). Selecting `ImagingStudy`, `ExplanationOfBenefit` or any other
-  API outside it ends that for every organization.
+  (section 3). The form tags each API with the distributions it qualifies
+  for (`autodownload-types`, such as `None,CMS,USCDIv1,USCDIv3`) and the
+  audiences it serves (`consumer-types`). By those tags the USCDI v3 set for
+  a patient app is 165 R4 APIs (2026-11-16), and it includes the two claims
+  APIs, `ExplanationOfBenefit.Read (Claim)` and `.Search (Claim)`.
+  `ImagingStudy` is not in it. Section 3 has why the claims APIs are
+  uncertain.
 - **FHIR version**: R4. `fhirUser` in the id token needs it: "The fhirUser
   claim will only be present if app has the R4 (or greater) SMART on FHIR
   version selected, and requests both the openid and fhirUser scopes"
@@ -166,7 +171,9 @@ app (patient apps):
 - "Does not use refresh tokens OR uses refresh tokens and has a client
   credential uploaded by the vendor for that community member"
 - "Selects "Enable Auto-download" and "USCDI v1" or "USCDI v3" on the app
-  creation page"
+  creation page". The page (2026-11-16) has one control for both, a radio
+  "Automatic Client Distribution" with None, USCDI v1, USCDI v3 and CMS
+  Patient Access API.
 - "Is marked "Ready for Production""
 
 and the organization "Has not disabled auto-download functionality". Also:
@@ -179,6 +186,30 @@ unknown-client error.
 mychart's app uses no refresh tokens (the JWT-bearer grant is not one), so
 it meets the condition; the docs do not say outright how a dynamic client
 is counted.
+
+**Claims and USCDI v3: Epic's lists disagree** (read 2026-11-16):
+
+- The registration form tags `ExplanationOfBenefit.Read (Claim)` and
+  `.Search (Claim)` with `USCDIv3` in `autodownload-types`, and Epic's API
+  catalog (`https://fhir.epic.com/Specifications/Selections`) gives both
+  `"IsUSCDI": true` and `"API_TypeName": "USCDI"`.
+- The patient-facing apps guide's appendix, "In addition to the USCDI v1
+  FHIR APIs above, the following FHIR APIs qualify for USCDI v3
+  auto-distribution", does not name ExplanationOfBenefit. The guide puts
+  it on a separate path, "Automatic Client ID Distribution: CMS Payer
+  Apps", for an app that "Uses only ExplanationOfBenefit … and/or any FHIR
+  APIs … from the list in the appendix" and selects "CMS Patient Access
+  API", at an organization "marked to use CMS Payer APIs in their open.epic
+  licensing agreement".
+- Epic on the claims API: "Subject to configuration by the organization,
+  this API can return resources built from pending claims, or claims
+  processed or paid by an external organization. Resource information for
+  these claims might be unverified, incomplete, or duplicative."
+
+The household's app selects them. Distribution shows only in production:
+an organization's authorize URL with the production client id answers
+with its MyChart sign-in page when it knows the app and an OAuth error page
+when it does not ([registration.md](registration.md), step 4).
 
 ## 4. Proxy access (a parent and a child)
 
@@ -273,6 +304,14 @@ range requests, so a failed download starts over.
   (tutorial). mychart asks for `openid fhirUser` (`config set scope` changes
   it). `offline_access` is not needed: dynamic registration gives the
   persistent access.
+- **Ids can run past 64 characters.** FHIR R4 caps an `id` at 64, but an
+  app's FHIR ID generation defaults to "Use Unconstrained FHIR IDs"; the
+  other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR
+  Resources", leaves other resources unlimited. Epic names no upper bound.
+  mychart accepts 1 to 256 of FHIR's id characters for the patient, as
+  pk-med-fhir does for a read or a `Binary`; a longer one is a skip. A
+  document id over 100 characters is shortened in its file name to its
+  first 83 and 16 hex digits of its SHA-256.
 - **An empty search is not empty**: Epic answers with an `OperationOutcome`
   entry (`search.mode = outcome`, "No results were found"); mychart drops
   it from the stream.
@@ -370,8 +409,9 @@ those bases authorize at 226 and 326. mychart uses Brands.
   records in both signs in to each.
 - **Coverage** comes through mychart: Kaiser's health plan runs in the same
   Epic instance, and `Coverage` is on the USCDI v3 list. **Claims**
-  (`ExplanationOfBenefit`) do not: Kaiser's servers list EOB, but selecting
-  it in the app ends automatic distribution (section 1). Kaiser serves
+  (`ExplanationOfBenefit`): Kaiser's servers list EOB, and the app selects
+  it (section 1), so `records export` asks for it; what Kaiser's Epic
+  answers is not yet seen. Kaiser also serves
   claims from a separate health-plan Patient Access API at
   `kpx-service-bus.kp.org`, which needs its own reviewed registration at
   developer.kp.org; Kaiser: "The health plan API (Patient Access API) is

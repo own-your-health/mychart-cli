@@ -318,6 +318,22 @@ mod tests {
         }
     }
 
+    /// Epic's unconstrained ids run past FHIR's 64 characters; one up to
+    /// pk-med-fhir's bound is asked for, a longer one is a skip unsent.
+    #[test]
+    fn an_id_past_64_characters_is_read_and_one_past_the_bound_is_not() {
+        let long = "e".repeat(200);
+        let body = format!(
+            r#"{{"resourceType":"Binary","id":"{long}","contentType":"text/plain","data":"aGk="}}"#
+        );
+        let t = Scripted::with(vec![ok(200, &body), ok(200, &body)]);
+        assert_eq!(code(fhir(&t).read(&format!("Binary/{long}"))), "ok");
+        assert_eq!(code(fhir(&t).binary(&format!("Binary/{long}"))), "ok");
+        let past = "e".repeat(pk_med_fhir::MAX_ID_LEN + 1);
+        assert_eq!(code(fhir(&t).binary(&format!("Binary/{past}"))), "no_file");
+        assert_eq!(t.sent(), 2);
+    }
+
     #[test]
     fn each_refusal_is_a_skip_and_only_the_sign_in_and_the_network_stop() {
         let outcome = r#"{"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"processing"}]}"#;

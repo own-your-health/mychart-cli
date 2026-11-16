@@ -74,6 +74,10 @@ pub const SEARCHES: &[SearchPlan] = &[
     ("CareTeam", &[], false),
     ("Goal", &[], false),
     ("Coverage", &[], false),
+    // Claims; on the form's USCDI v3 list (docs/registration.md).
+    ("ExplanationOfBenefit", &[], false),
+    // Questionnaire answers other organizations sent (Outside Record).
+    ("QuestionnaireResponse", &[], false),
     ("Device", &[], false),
     ("ServiceRequest", &[], false),
     ("Specimen", &[], false),
