@@ -1409,3 +1409,47 @@ fn absolute_and_versioned_references_on_this_server_are_read() {
     );
     assert_eq!(values.last().unwrap()["complete"], true);
 }
+
+/// A reference whose id FHIR does not allow is one skip in the trailer,
+/// naming the type and never the id, and is not requested.
+#[test]
+fn a_reference_with_an_id_fhir_does_not_allow_is_a_skip() {
+    use serde_json::json;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &mock, |_| {});
+    login(&ctx, "adult1");
+    mock.set(|st| {
+        let me = json!({"reference": format!("Patient/{SELF_PATIENT}")});
+        let goal = json!({
+            "resourceType": "Goal", "id": "goal-bad-ref", "subject": me,
+            "expressedBy": {"reference": "Practitioner/has space"},
+            "addresses": [{"reference": "Practitioner/has space"}]
+        });
+        let text = goal.to_string();
+        st.resources
+            .entry("Goal".into())
+            .or_default()
+            .push((goal, text));
+    });
+    let (values, lines) = export_stream(&ctx, SELF_PATIENT, None);
+    let trailer = values.last().unwrap();
+    assert_eq!(trailer["complete"], true);
+    let refused: Vec<_> = skips(trailer)
+        .into_iter()
+        .filter(|(t, _, code)| t == "Practitioner" && code == "invalid_reference")
+        .collect();
+    assert_eq!(
+        refused,
+        [(
+            "Practitioner".into(),
+            String::new(),
+            "invalid_reference".into()
+        )]
+    );
+    assert!(!lines.last().unwrap().contains("has space"));
+    assert_eq!(
+        mock.get(|st| st.hits.keys().filter(|k| k.contains("has")).count()),
+        0
+    );
+}

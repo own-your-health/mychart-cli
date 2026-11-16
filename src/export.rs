@@ -9,13 +9,13 @@
 //! stops working, a network that does, or a stream that cannot be written
 //! ends it.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use pk_cli_core::CliError;
 use serde_json::Value;
 
 use crate::fhir::{Failure, Fhir, RawResource, Wire};
-use pk_med_fhir::ReferenceTarget;
+use pk_med_fhir::{normalize_base, ReferenceTarget};
 use pk_med_records::{RecordsWriter, Skip};
 
 /// The searches, as (resource type, extra parameters, whether `--since`
@@ -167,19 +167,48 @@ pub fn attachment_urls(v: &Value) -> Vec<String> {
     urls
 }
 
-/// References to the types in [`REFERENCED`] on this server (`base`):
-/// relative (`Type/id`), absolute under `base`, or either with a
+/// The skip code for a reference whose id or version FHIR does not allow:
+/// the organization's own data, so no retry helps. `records-stream/v1`
+/// codes are an open set (pk-med-records' `skip` module lists the shared
+/// ones).
+pub const INVALID_REFERENCE: &str = "invalid_reference";
+
+/// What an export's resources point at, of the types in [`REFERENCED`] on
+/// this server.
+#[derive(Debug, Default)]
+pub struct References {
+    /// (type, id) to read.
+    pub read: BTreeSet<(String, String)>,
+    /// References whose id or version FHIR does not allow, once per
+    /// (type, id): each becomes one skip, which names the type and the id's
+    /// length, never the id.
+    pub refused: BTreeMap<(String, String), String>,
+}
+
+/// Collect `v`'s references to the types in [`REFERENCED`] on this server
+/// (`base`): relative (`Type/id`), absolute under `base`, or either with a
 /// `_history` version, as pk-med-fhir's [`ReferenceTarget`] reads them. A
 /// versioned one is read as the current resource. One on another server is
 /// not followed: the sign-in is not sent there.
-pub fn references(v: &Value, base: &str, out: &mut BTreeSet<(String, String)>) {
+pub fn references(v: &Value, base: &str, out: &mut References) {
     match v {
         Value::Object(map) => {
             if let Some(Value::String(r)) = map.get("reference") {
-                if let Some(t) = ReferenceTarget::parse(r)
-                    .filter(|t| t.is_under(base) && REFERENCED.contains(&t.resource_type))
-                {
-                    out.insert((t.resource_type.to_string(), t.id.to_string()));
+                match ReferenceTarget::read(r) {
+                    Ok(Some(t)) => {
+                        if t.is_under(base) && REFERENCED.contains(&t.resource_type) {
+                            out.read
+                                .insert((t.resource_type.to_string(), t.id.to_string()));
+                        }
+                    }
+                    Err(refused) => {
+                        if REFERENCED.contains(&refused.resource_type) && on_server(r, base) {
+                            out.refused
+                                .entry((refused.resource_type.to_string(), refused.id.to_string()))
+                                .or_insert_with(|| refused.to_string());
+                        }
+                    }
+                    Ok(None) => {}
                 }
             }
             for v in map.values() {
@@ -189,6 +218,12 @@ pub fn references(v: &Value, base: &str, out: &mut BTreeSet<(String, String)>) {
         Value::Array(a) => a.iter().for_each(|v| references(v, base, out)),
         _ => {}
     }
+}
+
+/// Whether a reference is relative, or absolute under `base`.
+fn on_server(reference: &str, base: &str) -> bool {
+    !reference.contains("://")
+        || normalize_base(reference).starts_with(&format!("{}/", normalize_base(base)))
 }
 
 fn skip_of(
@@ -215,7 +250,7 @@ pub fn run<T: Wire, W: std::io::Write>(
     since: Option<&str>,
     note: &dyn Fn(String),
 ) -> Result<(), CliError> {
-    let mut refs = BTreeSet::new();
+    let mut refs = References::default();
     let mut tried_binaries = HashSet::new();
     match fhir.read(&format!("Patient/{patient}")) {
         Ok(p) => {
@@ -289,8 +324,11 @@ pub fn run<T: Wire, W: std::io::Write>(
         }
     }
 
+    for ((t, _), reason) in refs.refused {
+        w.skip(skip_of(&t, None, None, INVALID_REFERENCE, reason));
+    }
     let mut read = 0;
-    for (t, id) in refs {
+    for (t, id) in refs.read {
         if w.written(&t, &id) {
             continue;
         }
@@ -418,9 +456,9 @@ mod tests {
             "contained": [{"reference": "#med1"}],
             "basedOn": [{"reference": "Practitioner?identifier=x"}],
         });
-        let mut out = BTreeSet::new();
+        let mut out = References::default();
         references(&v, "https://fhir.example.org/R4", &mut out);
-        let got: Vec<String> = out.iter().map(|(t, i)| format!("{t}/{i}")).collect();
+        let got: Vec<String> = out.read.iter().map(|(t, i)| format!("{t}/{i}")).collect();
         assert_eq!(
             got,
             [
@@ -432,6 +470,33 @@ mod tests {
                 "PractitionerRole/r1"
             ]
         );
+        assert!(out.refused.is_empty());
+    }
+
+    /// A reference whose id FHIR does not allow is kept for one skip, once,
+    /// and never read; one on another server is neither.
+    #[test]
+    fn a_reference_with_an_id_fhir_does_not_allow_is_kept_for_a_skip() {
+        let long = "x".repeat(pk_med_fhir::MAX_ID_LEN + 1);
+        let v: Value = serde_json::json!({
+            "requester": {"reference": "Practitioner/has space"},
+            "recorder": {"reference": "Practitioner/has space"},
+            "performer": [{"actor": {"reference": format!("https://fhir.example.org/R4/Organization/{long}")}}],
+            "location": {"reference": "Location/l1/_history/bad version"},
+            "custodian": {"reference": "https://other.example.org/R4/Organization/has space"},
+            "subject": {"reference": "Patient/has space"},
+        });
+        let mut out = References::default();
+        references(&v, "https://fhir.example.org/R4", &mut out);
+        assert!(out.read.is_empty(), "{:?}", out.read);
+        let types: Vec<&str> = out.refused.keys().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(types, ["Location", "Organization", "Practitioner"]);
+        for reason in out.refused.values() {
+            assert!(
+                !reason.contains("has space") && !reason.contains(&long),
+                "{reason}"
+            );
+        }
     }
 
     #[test]

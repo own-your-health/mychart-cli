@@ -12,6 +12,11 @@ use pk_cli_core::{CliError, Reason};
 use pk_cli_secrets::{CredentialStore, Secret};
 use pk_med_smart::{decode_session, SessionStore, SmartSession, SESSION_FORMAT};
 
+/// For an item a newer mychart stored: a sign-in with this release would
+/// replace it with an older shape.
+pub const UPDATE_REMEDY: &str = "update mychart with `mychart self-update`: a newer mychart \
+     stored this sign-in";
+
 /// What to do about a stored sign-in that does not read.
 pub const UNREADABLE_REMEDY: &str = "sign in again with `mychart auth login --org <ORG>`; the new \
      sign-in replaces it (a sign-in mychart 0.1 stored does not read in 0.2)";
@@ -62,9 +67,14 @@ impl SessionStore for Sessions {
             // Exit 3 like any sign-in that no longer works: the remedy is
             // a new sign-in, which replaces the item.
             Some(text) => decode_session(&text).map(Some).map_err(|e| {
+                let newer = e.remedy() == Some(pk_med_smart::remedy::UPDATE);
                 CliError::Auth(e.message().to_string())
                     .because(Reason::CredentialUnreadable)
-                    .with_remedy(UNREADABLE_REMEDY)
+                    .with_remedy(if newer {
+                        UPDATE_REMEDY
+                    } else {
+                        UNREADABLE_REMEDY
+                    })
             }),
         }
     }
@@ -150,5 +160,23 @@ mod tests {
         assert!(!e.to_string().contains("\"x\""), "{e}");
         assert!(sessions.delete("smart/o/p").unwrap());
         assert!(!sessions.delete("smart/o/p").unwrap());
+    }
+
+    /// An item a newer mychart stored asks for an update, not a sign-in
+    /// that would replace it with an older shape.
+    #[test]
+    fn an_item_a_newer_release_stored_asks_for_an_update() {
+        let v: Arc<dyn Vault> = Arc::new(MemoryVault::default());
+        let sessions = Sessions::new(v.clone());
+        let newer = format!(
+            r#"{{"format":{},"organization":"o","patient":"p","fhir_base":"https://fhir.example.org/R4","token_endpoint":"https://fhir.example.org/token","client_id":"c","scope":"openid","tokens":{{"access_token":"synthetic","token_type":"Bearer","obtained_at":0}}}}"#,
+            SESSION_FORMAT + 1
+        );
+        v.write("smart/o/p", &newer).unwrap();
+        let e = sessions.load("smart/o/p").unwrap_err();
+        assert_eq!(e.exit_code(), 3);
+        assert_eq!(e.remedy(), Some(UPDATE_REMEDY));
+        assert!(e.to_string().contains("mychart self-update"), "{e}");
+        assert!(!e.to_string().contains("synthetic"), "{e}");
     }
 }
