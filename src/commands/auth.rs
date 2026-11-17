@@ -56,8 +56,6 @@ fn validate_label(label: &str) -> Result<(), CliError> {
     }
 }
 
-/// `--org`: `sandbox` needs no directory; anything else resolves against
-/// the cached directory, downloading it when it is missing or a week old.
 /// The client id for `org` (the sandbox's or production's) and the config
 /// key that holds it.
 fn client_id_for(cfg: &Config, org: &Org) -> Result<(String, &'static str), CliError> {
@@ -81,20 +79,23 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
         let (name, id, client, redirect) = (
             v["organization"].as_str().unwrap_or_default(),
             v["org"].as_str().unwrap_or_default(),
-            v["client"].as_str().unwrap_or_default(),
+            v["client_key"].as_str().unwrap_or_default(),
             v["redirect_uri"].as_str().unwrap_or_default(),
         );
         match v["answer"].as_str().unwrap_or_default() {
             "known" => println!(
-                "{name} knows this app ({client}) with the redirect {redirect}: \
+                "{name} knows this app's client id (config key {client}) with the redirect \
+                 {redirect}: \
                  `{BIN} auth login --org {id}` can sign in"
             ),
             "unknown" => println!(
-                "{name} does not know this app ({client}) yet. Epic distributes a client \
+                "{name} does not know this app's client id (config key {client}) yet. Epic \
+                 distributes a client \
                  id marked Ready for Production on a rolling 12-hour cycle"
             ),
             "refused" => println!(
-                "{name} knows this app ({client}) but refused the request with error {}. \
+                "{name} knows this app's client id (config key {client}) but refused the \
+                 request with error {}. \
                  In Epic's sandbox error 4 meant the app does not list the redirect {redirect}",
                 v["error"].as_str().unwrap_or_default()
             ),
@@ -147,16 +148,12 @@ pub fn probe_org(ctx: &Ctx, query: &str) -> Result<Value, CliError> {
         request = request.param("nonce", random_token(32)?);
     }
     let resp = block_on(t.send(HttpRequest::get(request.url()?)))?;
-    let location = resp
-        .headers
-        .iter()
-        .find(|(k, _)| k == "location")
-        .map(|(_, v)| v.as_str());
-    let (answer, error) = epic::probe_answer(resp.status, location, &resp.body);
+    let (answer, error) =
+        epic::probe_answer(resp.status, resp.header_value("location"), &resp.body);
     let mut v = json!({
         "org": org.id,
         "organization": org.name,
-        "client": key_name,
+        "client_key": key_name,
         "redirect_uri": redirect,
         "answer": answer,
         "status": resp.status,
@@ -167,6 +164,8 @@ pub fn probe_org(ctx: &Ctx, query: &str) -> Result<Value, CliError> {
     Ok(v)
 }
 
+/// `--org`: `sandbox` needs no directory; anything else resolves against
+/// the cached directory, downloading it when it is missing or a week old.
 pub fn resolve_org(ctx: &Ctx, query: &str) -> Result<Org, CliError> {
     if query.trim().eq_ignore_ascii_case(orgs::SANDBOX_ID) {
         return Ok(Org::sandbox());

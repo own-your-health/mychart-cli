@@ -257,7 +257,7 @@ fn a_probe_tells_a_known_client_from_an_unknown_one_and_a_refused_redirect() {
     };
     let known = probe(&|_| {});
     assert_eq!(known["answer"], "known", "{known}");
-    assert_eq!(known["client"], "client_id");
+    assert_eq!(known["client_key"], "client_id");
     assert_eq!(known["status"], 302);
     assert!(known.get("error").is_none(), "{known}");
     let page = probe(&|c| c.redirect_uri = Some("https://pages.example.org/callback".into()));

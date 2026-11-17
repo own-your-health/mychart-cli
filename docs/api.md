@@ -513,7 +513,11 @@ range requests, so a failed download starts over.
   | Client known, `redirect_uri` not on the app | 302 to `/mychart-fhir/Authentication/OAuth/Start` with `error=4` | `refused`, `error` `4` |
   | Client and redirect known | 302 to `/mychart-fhir/Authentication/OAuth/Start`, no `error` | `known` |
 
-  Anything else is `unrecognized`, with the HTTP status. A known client's
+  Anything else is `unrecognized`. The `auth-probe/v1` document always
+  carries `org`, `organization`, `client_key` (the config key whose client
+  id was sent: `client_id`, or `sandbox_client_id` for the sandbox),
+  `redirect_uri`, `answer` and `status` (the HTTP status); `error` only with
+  `refused`. A known client's
   redirect leads to MyChart's sign-in, which the probe does not follow, so
   no `code` is ever issued to it. Its test patients (`fhircamila`, `fhirderrick`,
   `fhirdesiree`, password `epicepic1`) are synthetic and published by Epic.
