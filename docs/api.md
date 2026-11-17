@@ -233,9 +233,9 @@ app (patient apps):
 and the organization "Has not disabled auto-download functionality". Also:
 "All US provider organizations currently receive client IDs that meet the
 automatic distribution criteria." There is no per-organization activation
-for such an app. A sign-in in the first 12 hours after Ready for Production,
-or at an organization that turned auto-download off, fails with an
-unknown-client error.
+for such an app. A sign-in at an organization that has not received the
+client id yet (up to 12 hours after Ready for Production), or that turned
+auto-download off, fails with an unknown-client error.
 
 mychart's app uses no refresh tokens (the JWT-bearer grant is not one), so
 it meets the condition; the docs do not say outright how a dynamic client
@@ -260,10 +260,23 @@ is counted.
   processed or paid by an external organization. Resource information for
   these claims might be unverified, incomplete, or duplicative."
 
-The household's app selects them. Distribution shows only in production:
-an organization's authorize URL with the production client id answers
-with its MyChart sign-in page when it knows the app and an OAuth error page
-when it does not ([registration.md](registration.md), step 4).
+The household's app selects them, and they did not stop its automatic
+distribution. It was marked Ready for Production at 22:04 EST on
+2026-11-16. `mychart auth probe`, which reads an organization's answer to
+the authorize request without signing in ([registration.md](registration.md),
+step 4), then found:
+
+| Probed at (EST) | Minutes after Ready for Production | Production organizations that knew the client id |
+|---|---|---|
+| 22:06 | 2 | 0 of 1 |
+| 22:26 | 22 | 2 of 9 |
+| 22:54 | 50 | 6 of 9 |
+
+So the 12-hour cycle is an upper bound, and most organizations knew the
+app within an hour. The Kaiser regions are listed by name under
+[Kaiser Permanente](#kaiser-permanente). An organization that does not know
+the app answers with Epic's "OAuth2 Error" page, and a sign-in there fails
+until it does.
 
 ## 4. Proxy access (a parent and a child)
 
@@ -582,7 +595,24 @@ those bases authorize at 226 and 326. mychart uses Brands.
   patient in person "will be encrypted". Northwest: an Imaging ROI request;
   dental and eye images through a download portal (Nuance PowerShare) with a
   DICOM download.
-- **Distribution is unverified.** Epic distributes a qualifying app's client
-  id unless an organization "has disabled auto-download functionality";
-  Kaiser does not say whether it has. `mychart auth probe --org <ID>` for
-  one region answers it without signing in: `known` or `unknown`.
+- **Distribution.** Epic distributes a qualifying app's client id unless an
+  organization "has disabled auto-download functionality"; Kaiser does not
+  say whether it has. After the household's app was marked Ready for
+  Production at 22:04 EST on 2026-11-16, `mychart auth probe` read:
+
+  | Region (brand id) | 22:26 EST | 22:54 EST |
+  |---|---|---|
+  | Northwest (132) | known | known |
+  | Mid-Atlantic (480) | known | known |
+  | Georgia (237) | unknown | known |
+  | Northern California (482) | unknown | known |
+  | Southern California (483) | unknown | known |
+  | Colorado (478) | unknown | unknown |
+  | Hawaii (479) | unknown | unknown |
+  | Washington (439) | unknown | unknown |
+
+  So Kaiser has not turned auto-download off in five regions. For the
+  other three, an `unknown` 24 hours after Ready for Production, twice
+  Epic's 12-hour cycle and the margin registration.md step 4 uses, would
+  mean it has.
+  `mychart auth probe --org <ID>` answers it again without signing in.
