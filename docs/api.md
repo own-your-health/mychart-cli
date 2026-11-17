@@ -612,5 +612,7 @@ those bases authorize at 226 and 326. mychart uses Brands.
   | Washington (439) | unknown | unknown |
 
   So Kaiser has not turned auto-download off in five regions. For the
-  other three, an `unknown` past 24 hours would mean it has.
+  other three, an `unknown` 24 hours after Ready for Production, twice
+  Epic's 12-hour cycle and the margin registration.md step 4 uses, would
+  mean it has.
   `mychart auth probe --org <ID>` answers it again without signing in.
