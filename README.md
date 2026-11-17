@@ -106,7 +106,8 @@ Every command takes `--json`. Exit codes: 0 ok, 2 usage, 3 sign-in needed,
 3. `mychart` exchanges the code (PKCE), registers a key made on this
    computer with the organization (Epic's dynamic client registration), and
    from then on gets access tokens by signing with that key, until the
-   access period chosen in MyChart ends.
+   access period chosen in MyChart ends. MyChart asks how long to share;
+   `auth login` says to choose the longest (1 year on Epic's sandbox).
 
 Tokens and the key are one macOS Keychain item per patient
 (`piekstra.mychart`, account `smart/<organization>/<patient>`). Nothing
