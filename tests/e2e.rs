@@ -53,6 +53,33 @@ fn browser(url: &str) -> bool {
     true
 }
 
+/// A browser for an app whose redirect is an https page: it follows the
+/// authorize redirect to the page, which (as `site/callback.html` does)
+/// passes the query on to the listener on `port`.
+fn browser_through(page: &'static str, port: u16) -> impl Fn(&str) -> bool {
+    move |url: &str| {
+        let url = url.to_string();
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap();
+            let resp = client.get(&url).send().unwrap();
+            assert_eq!(resp.status().as_u16(), 302, "authorize refused");
+            let back = resp.headers()["location"].to_str().unwrap().to_string();
+            let query = back
+                .strip_prefix(page)
+                .expect("the answer goes to the page")
+                .to_string();
+            client
+                .get(format!("http://127.0.0.1:{port}/callback{query}"))
+                .send()
+                .unwrap();
+        });
+        true
+    }
+}
+
 fn ctx(dir: &Path, mock: &MockEpic, configure: impl FnOnce(&mut Config)) -> Ctx {
     let store = ConfigStore::new("mychart").with_override(Some(dir.join("config.json")));
     let mut cfg = Config {
@@ -189,6 +216,55 @@ fn a_sign_in_registers_the_install_and_renews_without_the_browser() {
 
     commands::patients::run(&ctx, &PatientsCmd::List { status: true }).unwrap();
     commands::auth::run(&ctx, &AuthCmd::Status).unwrap();
+}
+
+/// Epic's production organizations take only https redirects: the app
+/// registers a page that passes the answer on to the listener. The address
+/// and the code exchange name the page (the mock refuses an exchange whose
+/// redirect differs from the authorization's), and the code still arrives
+/// on the listener's port.
+#[test]
+fn a_sign_in_through_an_https_page_names_the_page_and_hears_the_answer_on_the_port() {
+    const PAGE: &str = "https://pages.example.test/mychart-cli/callback";
+    let mock = MockEpic::start();
+    mock.set(|st| st.redirect_page = Some(PAGE.into()));
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let mut ctx = ctx(dir.path(), &mock, |c| {
+        c.redirect_port = Some(port);
+        c.redirect_uri = Some(PAGE.into());
+    });
+    ctx.browser = Box::new(browser_through(PAGE, port));
+    login(&ctx, "adult1");
+    let s = stored(&ctx, SELF_PATIENT);
+    assert!(s.dynamic_client.is_some());
+    assert_eq!(mock.get(|st| st.registrations), 1);
+}
+
+/// The page this repository publishes forwards to 7468 only: with another
+/// port the sign-in is refused before anything is sent or opened.
+#[test]
+fn the_published_page_with_another_port_is_refused_before_the_network() {
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |c| {
+        c.redirect_port = Some(8123);
+        c.redirect_uri = Some(mychart::config::PUBLISHED_REDIRECT.into());
+    });
+    ctx.browser = Box::new(|_: &str| panic!("no browser may open"));
+    let err = commands::auth::run(
+        &ctx,
+        &AuthCmd::Login(LoginArgs {
+            org: ORG_ID.into(),
+            label: None,
+            no_browser: false,
+            timeout: 1,
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(err.exit_code(), 2);
+    assert!(err.to_string().contains("8123"), "{err}");
+    assert!(mock.get(|st| st.hits.is_empty() && st.registrations == 0));
 }
 
 #[test]

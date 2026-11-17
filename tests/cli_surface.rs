@@ -221,6 +221,15 @@ fn bad_arguments_are_refused_before_anything_else() {
             vec![
                 "config",
                 "set",
+                "redirect_uri",
+                "http://pages.example.org/cb",
+            ],
+            2,
+        ),
+        (
+            vec![
+                "config",
+                "set",
                 "directory_url",
                 "http://example.com/brands",
             ],
@@ -264,6 +273,15 @@ fn config_round_trips() {
         .args(["config", "set", "redirect_port", "8123"])
         .assert()
         .success();
+    mychart(&home)
+        .args([
+            "config",
+            "set",
+            "redirect_uri",
+            "https://piekstra.github.io/mychart-cli/callback",
+        ])
+        .assert()
+        .success();
     let out = mychart(&home)
         .args(["config", "show", "--json"])
         .assert()
@@ -274,6 +292,14 @@ fn config_round_trips() {
     let v = json_of(&out);
     assert_eq!(v["client_id"], "00000000-0000-0000-0000-000000000001");
     assert_eq!(v["redirect_port"], 8123);
+    assert_eq!(
+        v["redirect_uri"],
+        "https://piekstra.github.io/mychart-cli/callback"
+    );
+    mychart(&home)
+        .args(["config", "unset", "redirect_uri"])
+        .assert()
+        .success();
     mychart(&home)
         .args(["config", "unset", "redirect_port"])
         .assert()

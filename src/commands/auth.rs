@@ -85,6 +85,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
              `{BIN} config set {key_name} <ID>`"
         ))
     })?;
+    cfg.check_redirect()?;
     if let Some(host) = cfg.stale_redirect_host() {
         ctx.note(format!(
             "warning: config.json sets redirect_host `{host}`, which mychart 0.2 does not use: \
@@ -104,11 +105,17 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     let version = env!("CARGO_PKG_VERSION");
     let config = block_on(discover(&t, &org.fhir_base, &quirks, BIN, version))?;
     let client = ClientAuth::public(client_id.clone());
-    let app = SmartApp {
-        app: BIN.into(),
-        client: ClientAuth::public(client_id.clone()),
-        ports: vec![cfg.redirect_port()],
-    };
+    let mut app = SmartApp::new(
+        BIN,
+        ClientAuth::public(client_id.clone()),
+        vec![cfg.redirect_port()],
+    );
+    // Epic's production organizations take only https redirects: a page
+    // registered on the app passes the answer on to the listener
+    // (docs/api.md).
+    if let Some(page) = &cfg.redirect_uri {
+        app = app.redirect_uri(page.clone());
+    }
     let signin = begin(
         &app,
         LaunchRequest {
@@ -121,8 +128,13 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     )?;
     let url = signin.url().to_string();
     let opened = !args.no_browser && (ctx.browser)(&url);
+    let through = cfg
+        .redirect_uri
+        .as_ref()
+        .map(|page| format!("\nThe browser comes back through {page} to this computer."))
+        .unwrap_or_default();
     eprintln!(
-        "Sign in to {} in the browser{}. If a list of people appears, pick the one to link.\n\
+        "Sign in to {} in the browser{}. If a list of people appears, pick the one to link.{through}\n\
          If no browser opened, visit:\n  {url}",
         org.name,
         if opened { " window that opened" } else { "" }

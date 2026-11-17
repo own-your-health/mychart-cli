@@ -85,6 +85,9 @@ pub struct State {
     /// Epic says a sub-resource the client may not read was left out:
     /// (search as in `refuse`, the warning's `diagnostics`).
     pub withhold: Vec<(String, String)>,
+    /// An https forwarding page registered on the app besides the loopback
+    /// addresses, as Epic's production registrations need.
+    pub redirect_page: Option<String>,
     pub page_size: usize,
     /// Answers that replace a read's (`Binary/b1`, `Practitioner/p1`):
     /// a status and a body, for the given number of requests.
@@ -189,6 +192,7 @@ impl MockEpic {
                 ("Media".into(), 400),
             ],
             withhold: Vec::new(),
+            redirect_page: None,
             page_size: 2,
             faults: Vec::new(),
             hits: HashMap::new(),
@@ -429,8 +433,10 @@ fn serve(mut stream: TcpStream, port: u16, state: &Arc<Mutex<State>>) -> Option<
                 return Some(());
             }
             let redirect = get("redirect_uri");
+            let page = state.lock().unwrap().redirect_page.clone();
             if !(redirect.starts_with("http://127.0.0.1:")
-                || redirect.starts_with("http://localhost:"))
+                || redirect.starts_with("http://localhost:")
+                || page.as_deref() == Some(redirect.as_str()))
             {
                 respond(&mut stream, 400, &[], "redirect_uri not registered");
                 return Some(());
