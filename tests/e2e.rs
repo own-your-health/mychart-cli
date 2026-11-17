@@ -1815,11 +1815,23 @@ fn profiles_remove_takes_the_sign_ins_and_the_browser_profile_with_it() {
     let mock = MockEpic::start();
     let dir = tempfile::tempdir().unwrap();
     let mut ctx = ctx(dir.path(), &mock, |_| {});
+    // The browser profile a sign-in in acct1 would have left, under the
+    // test's own root: pk-cli-browser removes it there, never the owner's.
+    let root = dir.path().join("data");
+    let kept = root.join("piekstra.mychart").join("browser-profile-acct1");
+    std::fs::create_dir_all(&kept).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    assert!(pk_cli_browser::named_profile_exists_in(&root, "mychart", "acct1").unwrap());
     let forgot: Arc<Mutex<Vec<String>>> = Arc::default();
-    let f = forgot.clone();
+    let (f, r) = (forgot.clone(), root.clone());
     ctx.forget_browser = Box::new(move |name: &ProfileName| {
         f.lock().unwrap().push(name.to_string());
-        Ok(true)
+        pk_cli_browser::forget_named_profile_in(&r, "mychart", name.as_str())
+            .map_err(CliError::from)
     });
     login(&ctx, "adult1");
     let account = ctx.contexts(&p()).unwrap()[0].account();
@@ -1831,9 +1843,14 @@ fn profiles_remove_takes_the_sign_ins_and_the_browser_profile_with_it() {
     assert_eq!(e.exit_code(), 6, "{e}");
     assert!(sessions(&ctx).load(&account).unwrap().is_some());
 
+    assert!(
+        kept.exists(),
+        "a refused removal removed the browser profile"
+    );
     commands::profiles::run(&ctx, &remove(true)).unwrap();
     assert!(sessions(&ctx).load(&account).unwrap().is_none());
     assert_eq!(*forgot.lock().unwrap(), ["acct1"]);
+    assert!(!kept.exists());
     assert!(!ctx.config().unwrap().profiles.contains(&p()));
     let e = commands::profiles::run(&ctx, &remove(true)).unwrap_err();
     assert_eq!(e.exit_code(), 4, "{e}");
