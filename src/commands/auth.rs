@@ -602,7 +602,7 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
         // The settings other than profiles: another profile's sign-ins
         // stay listed with it.
         let cfg = ctx.config()?;
-        ctx.save_config(&Config {
+        ctx.store.save(&Config {
             profiles: cfg.profiles,
             ..Config::default()
         })?;

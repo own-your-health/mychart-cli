@@ -52,14 +52,14 @@ pub fn run(ctx: &Ctx, cmd: &ConfigCmd) -> Result<(), CliError> {
             // here, whichever of the two keys came second, and the file
             // keeps its old value.
             cfg.check_redirect()?;
-            ctx.save_config(&cfg)?;
+            ctx.store.save(&cfg)?;
             ctx.note(format!("{key} set"));
             Ok(())
         }
         ConfigCmd::Unset { key } => {
             let mut cfg: Config = ctx.config()?;
             cfg.unset(key)?;
-            ctx.save_config(&cfg)?;
+            ctx.store.save(&cfg)?;
             ctx.note(format!("{key} unset"));
             Ok(())
         }

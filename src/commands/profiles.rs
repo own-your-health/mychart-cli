@@ -56,7 +56,7 @@ fn add(ctx: &Ctx, name: &str) -> Result<(), CliError> {
     let mut cfg = ctx.config()?;
     let added = cfg.profiles.add(name.clone());
     if added {
-        ctx.save_config(&cfg)?;
+        ctx.store.save(&cfg)?;
     }
     output::emit(
         ctx.json(),
@@ -103,7 +103,7 @@ fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
     let browser = (ctx.forget_browser)(&name)?;
     let mut cfg = ctx.config()?;
     cfg.profiles.remove(&name);
-    ctx.save_config(&cfg)?;
+    ctx.store.save(&cfg)?;
     output::emit(
         ctx.json(),
         "profile-remove",
@@ -185,7 +185,7 @@ fn migrate(ctx: &Ctx, name: &str, org: Option<&str>, patients: &[String]) -> Res
     let mut cfg = ctx.config()?;
     let added = cfg.profiles.add(name.clone());
     if added {
-        ctx.save_config(&cfg)?;
+        ctx.store.save(&cfg)?;
     }
     let accounts: Vec<String> = chosen.iter().map(Context::account).collect();
     let done = pk_med_smart::migrate_sessions(
