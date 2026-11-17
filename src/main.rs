@@ -17,7 +17,7 @@ fn main() {
 }
 
 fn run(cli: &Cli) -> Result<(), CliError> {
-    let ctx = Ctx::for_binary(cli.common.clone(), cli.config.clone())?;
+    let ctx = Ctx::for_binary(cli.common.clone(), cli.config.clone(), cli.profile.clone())?;
     match &cli.command {
         Command::Orgs(cmd) => commands::orgs::run(&ctx, cmd),
         Command::Auth(cmd) => commands::auth::run(&ctx, cmd),
@@ -25,6 +25,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Records(cmd) => commands::records::run(&ctx, cmd),
         Command::Documents(cmd) => commands::documents::run(&ctx, cmd),
         Command::Api(args) => commands::api::run(&ctx, args),
+        Command::Profiles(cmd) => commands::profiles::run(&ctx, cmd),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
@@ -45,7 +46,9 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                 AuthInfo {
                     required: true,
                     method: "browser-session".into(),
-                    login_hint: Some(format!("{BIN} auth login --org <ORG> --label <WHO>")),
+                    login_hint: Some(format!(
+                        "{BIN} profiles add <NAME>; {BIN} auth login --profile <NAME> --org <ORG> --label <WHO>"
+                    )),
                 },
                 &[
                     "orgs",
@@ -54,7 +57,9 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "records",
                     "documents",
                     "api",
+                    "profiles",
                     "config",
+                    pk_med_records::LOGIN_PROFILES,
                 ],
             )
             .with_profiles(PROFILES);

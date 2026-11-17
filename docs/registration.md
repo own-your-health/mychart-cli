@@ -135,10 +135,15 @@ without signing in, run `mychart auth probe --org sandbox`. It answers
 with Epic's error code (`4`: the app does not list the redirect). Then:
 
 ```sh
+mychart profiles add test-sandbox
+export MYCHART_PROFILE=test-sandbox
 mychart auth login --org sandbox --label test
 mychart patients list
 mychart records export --org sandbox --patient test --ndjson | head -c 300
 ```
+
+A profile is one MyChart account at one organization; the sign-in opens
+in that profile's own Chrome window.
 
 Sign in with one of Epic's published test patients (`fhircamila`,
 `fhirderrick` or `fhirdesiree`, password `epicepic1`; synthetic people). Put
@@ -159,7 +164,8 @@ production "cannot be deactivated", only deactivated by each organization.
 mychart config set client_id <Client ID>
 mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback
 mychart orgs search "<your health system>"
-mychart auth login --org <ID> --label <WHO>
+mychart profiles add <NAME>
+mychart auth login --profile <NAME> --org <ID> --label <WHO>
 ```
 
 `redirect_uri` makes every sign-in send the https page, which production

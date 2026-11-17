@@ -9,8 +9,9 @@ use crate::cli::PatientsCmd;
 
 pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     let PatientsCmd::List { status } = cmd;
+    let profile = ctx.profile_name()?;
     let mut items = Vec::new();
-    for c in ctx.contexts()? {
+    for c in ctx.contexts(&profile)? {
         let v = if *status {
             let held = stored(ctx, &c)?;
             let mut v = status_row(&c, &held);
@@ -29,7 +30,9 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     if ctx.json() {
         output::json(&json!({ "schema": "patient-list/v1", "items": items }));
     } else if items.is_empty() {
-        eprintln!("no patient is signed in (`mychart auth login --org <ORG> --label <WHO>`)");
+        eprintln!(
+            "no patient is signed in as {profile} (`mychart auth login --profile {profile} --org <ORG> --label <WHO>`)"
+        );
     } else {
         let mut view: Vec<Value> = output::table_view(
             &items,

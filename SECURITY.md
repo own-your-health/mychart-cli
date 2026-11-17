@@ -5,13 +5,18 @@ on this repository. Please do not open a public issue.
 
 ## What mychart protects
 
-- **Tokens and keys** live only in the OS keychain, one item per patient
-  (service `piekstra.mychart`). They are never printed, logged, written to
-  a file, or passed in argv.
+- **Tokens and keys** live only in the CLI's vault: one encrypted file per
+  profile and patient under `~/.config/mychart/vault/` (owner-only,
+  XChaCha20-Poly1305, file names hashed), sealed with one key in the OS
+  keychain (service `piekstra.mychart`, account `vault-key`). They are
+  never printed, logged, written anywhere else, or passed in argv.
+- **Profiles** keep logins apart: every command that uses a sign-in names
+  its profile, with no default, and each profile signs in in its own
+  Chrome profile, so one MyChart account's cookies never sign in another.
 - **The per-install key**: 3072-bit RSA, made on the computer at sign-in,
   registered with the organization through Epic's dynamic client
-  registration. Anyone holding the Keychain item can read that patient's
-  records until the access period ends; `mychart auth logout` deletes it,
+  registration. Anyone holding the vault's key and its files can read
+  that patient's records until the access period ends; `mychart auth logout` deletes it,
   and MyChart's "Manage My Linked Apps and Devices" revokes it at the
   organization.
 - **The sign-in redirect** ends at `127.0.0.1`, and its `state` and PKCE

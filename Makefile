@@ -63,11 +63,15 @@ smoke: release
 	@$(SMOKE) --version >/dev/null
 	@$(SMOKE) info --json >/dev/null
 	@$(SMOKE) completions bash >/dev/null
-	@$(SMOKE) auth status --json >/dev/null
-	@$(SMOKE) patients list --json >/dev/null
+	@$(SMOKE) profiles add smoke1 >/dev/null
+	@$(SMOKE) profiles list --json >/dev/null
+	@$(SMOKE) auth status --json --profile smoke1 >/dev/null
+	@$(SMOKE) patients list --json --profile smoke1 >/dev/null
+	@! $(SMOKE) auth status --json >/dev/null 2>&1
 	@for c in "orgs list" "orgs search" "orgs refresh" "auth login" "auth status" \
 		"auth logout" "patients list" "records export" "documents list" \
-		"documents download" "api" "config set"; do \
+		"documents download" "api" "config set" "profiles list" "profiles add" \
+		"profiles remove" "profiles migrate"; do \
 		$(SMOKE) $$c --help >/dev/null || exit 1; done
 	@echo "smoke ok"
 

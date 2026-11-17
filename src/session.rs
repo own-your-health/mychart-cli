@@ -1,15 +1,18 @@
-//! The patient contexts this install holds: one Keychain item per
-//! (organization, patient) holding its `pk_med_smart::SmartSession`, and a
-//! non-secret index beside the config listing them, so `patients list`
-//! reads no Keychain item. [`Live`] is a signed-in context's token for a run
-//! of requests, renewed through pk-med-smart's `Renewer` under the
-//! family's refresh lock.
+//! The patient contexts this install holds, per profile: each profile's
+//! settings in the config list its contexts ([`ProfileSettings`]), so
+//! `patients list` reads no secret, and the CLI's vault keeps one
+//! `pk_med_smart::SmartSession` per (profile, organization, patient).
+//! [`Live`] is a signed-in context's token for a run of requests, renewed
+//! through pk-med-smart's `Renewer` under the family's refresh lock.
+//! [`Index`] is where mychart 0.4 and earlier listed contexts, read only to
+//! move them into a profile (`mychart profiles migrate`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pk_cli_auth::oauth::{ClientAuth, OAuthClient};
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_config::profile::ProfileName;
 use pk_cli_core::transport::Transport;
 use pk_cli_core::{CliError, Reason};
 use pk_cli_secrets::Secret;
@@ -17,7 +20,7 @@ use pk_med_smart::{DynamicClient, JwtSigner, Renewer, RsaKey, SessionStore, Smar
 use serde::{Deserialize, Serialize};
 
 use crate::epic::EpicQuirks;
-use crate::vault::{Sessions, Vault};
+use crate::vault::Sessions;
 
 pub use pk_med_smart::account;
 
@@ -60,6 +63,35 @@ pub struct Context {
     pub fhir_user: Option<String>,
     /// RFC 3339.
     pub signed_in_at: String,
+    /// The profile this context was read from; not stored, since the
+    /// profile holds it.
+    #[serde(skip)]
+    pub profile: Option<ProfileName>,
+}
+
+/// A profile's settings in the config: the patient contexts its MyChart
+/// account signed in.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProfileSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<Context>,
+}
+
+impl ProfileSettings {
+    /// Insert or replace the context for the same (organization, patient).
+    pub fn upsert(&mut self, ctx: Context) {
+        self.contexts
+            .retain(|c| !(c.organization == ctx.organization && c.id == ctx.id));
+        self.contexts.push(Context {
+            profile: None,
+            ..ctx
+        });
+    }
+
+    pub fn remove(&mut self, organization: &str, patient: &str) {
+        self.contexts
+            .retain(|c| !(c.organization == organization && c.id == patient));
+    }
 }
 
 impl Context {
@@ -108,7 +140,9 @@ struct IndexFile {
     contexts: Vec<Context>,
 }
 
-/// The index file, `contexts.json` beside the config file.
+/// mychart 0.4's index file, `contexts.json` beside the config file: the
+/// contexts signed in before profiles, whose sessions are Keychain items
+/// `smart/<org>/<patient>`. `profiles migrate` moves both into a profile.
 pub struct Index {
     path: PathBuf,
 }
@@ -227,10 +261,15 @@ fn unix_now() -> u64 {
     now().max(0) as u64
 }
 
-/// `mychart auth login --org <ORG> [--label <WHO>]` for this context.
+/// `mychart auth login --profile <NAME> --org <ORG> [--label <WHO>]` for
+/// this context.
 pub fn login_command(ctx: &Context) -> String {
     format!(
-        "mychart auth login --org {}{}",
+        "mychart auth login{} --org {}{}",
+        ctx.profile
+            .as_ref()
+            .map(|p| format!(" --profile {p}"))
+            .unwrap_or_default(),
         ctx.organization,
         ctx.label
             .as_ref()
@@ -359,12 +398,11 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
     /// is where a renewal after a 401 is reported, so it is never silent.
     pub fn start(
         t: &T,
-        vault: Arc<dyn Vault>,
+        sessions: Sessions,
         lock: &RefreshLock,
         context: &Context,
         note: Option<Note>,
     ) -> Result<Self, CliError> {
-        let sessions = Sessions::new(vault);
         let stored = load(&sessions, context)?;
         if crate::fhir::origin(&stored.fhir_base) != crate::fhir::origin(&context.fhir_base) {
             return Err(CliError::Auth(format!(
@@ -532,6 +570,7 @@ mod tests {
             relationship: None,
             fhir_user: None,
             signed_in_at: "2026-01-01T00:00:00Z".into(),
+            profile: None,
         }
     }
 

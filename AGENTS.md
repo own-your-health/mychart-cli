@@ -11,12 +11,12 @@ the `pk-cli-*` crates from [cli-common](https://github.com/piekstra/cli-common).
 |---|---|
 | `src/main.rs` | parsing, the `Ctx`, dispatch, `info`, exit codes |
 | `src/cli.rs` | the clap tree |
-| `src/commands/*.rs` | one module per command group; `Ctx` (config, vault, lock, cache, browser) in `mod.rs` |
+| `src/commands/*.rs` | one module per command group; `Ctx` (config, `--profile`, vault, 0.4's Keychain, lock, cache, sign-in window, browser) in `mod.rs`; `profiles.rs` the profiles and their migration |
 | `src/orgs.rs` | Epic's Brands bundle: download, weekly cache, index, `--org` resolution, search |
-| `src/epic.rs` | Epic's `VendorQuirks` (`Epic-Client-ID` on discovery, `/metadata` first, no scope on the JWT-bearer grant), `fhirUser` and the self/proxy relationship |
-| `src/browser.rs` | opening the sign-in page (`MYCHART_BROWSER` overrides the system's) |
-| `src/session.rs` | the patient index (`contexts.json`), `pick`, and `Live`: a context's token for a run, renewed by pk-med-smart's `Renewer` under the refresh lock, with 0.1's rule that a 401 to a just-renewed token ends the sign-in |
-| `src/vault.rs` | the Keychain behind a trait, so tests use memory; `Sessions`, the `SessionStore` over it |
+| `src/epic.rs` | Epic's `VendorQuirks` (`Epic-Client-ID` on discovery, `/metadata` first, no scope on the JWT-bearer grant), `fhirUser` and the self/proxy relationship, the pages a sign-in opens first (kp.org's at Kaiser Permanente) |
+| `src/browser.rs` | the default browser, when the profile's Chrome window cannot open (`MYCHART_BROWSER` overrides the system's) |
+| `src/session.rs` | a profile's contexts (`ProfileSettings`, in the config), 0.4's index (`contexts.json`, read only by `profiles migrate`), `pick`, and `Live`: a context's token for a run, renewed by pk-med-smart's `Renewer` under the refresh lock, with 0.1's rule that a 401 to a just-renewed token ends the sign-in |
+| `src/vault.rs` | the vault behind a trait, so tests use memory; `Sessions`, one profile's `SessionStore` over it, with `ProfileSessions`' entry names |
 | `src/fsutil.rs` | owner-only files written whole (`write_private`, over `pk_cli_drive::private_file`) |
 | `src/fhir.rs` | `Fhir` over `pk_med_fhir::FhirClient` with `Live` as its token source; a request's error to stop or skip (`Failure`) |
 | `src/export.rs` | Epic's search plan, the export order, and the types `--since` leaves unbounded |
@@ -24,13 +24,15 @@ the `pk-cli-*` crates from [cli-common](https://github.com/piekstra/cli-common).
 | `docs/api.md` | Epic's behaviour and traps, quoted; read before changing auth or export |
 | `site/` | GitHub Pages (`.github/workflows/pages.yml`): `callback.html`, the https redirect registered for production, which passes the sign-in's answer on to `http://127.0.0.1:7468/callback`; `tests/site.rs` checks its policy and target |
 
-medical-common v0.5.0 (pinned with cli-common v0.32.0, the tag it builds
+medical-common v0.6.0 (pinned with cli-common v0.33.0, the tag it builds
 on) owns the protocol and the stream:
 
 - `pk-med-smart`: discovery, the standalone launch with PKCE, the code
   exchange, dynamic client registration with an RSA key (`RsaKey`, feature
-  `rsa`), the JWT-bearer and refresh grants (`Renewer`), and the
-  `SmartSession` each Keychain item holds.
+  `rsa`), the JWT-bearer and refresh grants (`Renewer`), the
+  `SmartSession` each vault entry holds, `ProfileSessions` and
+  `migrate_sessions`, and `SignInWindow` (feature `browser`), a profile's
+  own Chrome window.
 - `pk-med-fhir`: `FhirClient` (reads, paged searches, `Binary`, retries,
   the bearer from a token source, renewal after a 401, the base's origin
   only), `RawResource` and `normalize_base`.
@@ -63,15 +65,26 @@ Medical records are the most sensitive data a household has.
 
 ## Credentials
 
-- One Keychain item per (organization, patient): service
-  `piekstra.mychart`, account `smart/<organization>/<patient>`, JSON holding
-  the access token, the dynamic client id and its private key. Never
-  printed, logged, or put in argv.
+- One vault entry per (profile, organization, patient), named
+  `<profile>/<organization>/<patient>`: an encrypted file under
+  `~/.config/mychart/vault/` holding the access token, the dynamic client
+  id and its private key, all sealed with one key in the Keychain (service
+  `piekstra.mychart`, account `vault-key`; `pk_cli_auth::vault`). Never
+  printed, logged, or put in argv. mychart 0.4 kept one Keychain item per
+  (organization, patient), `smart/<organization>/<patient>`; `profiles
+  migrate` moves them in, and deletes a test or sandbox item rather than
+  moving it would cost a dialog (`security delete-generic-password -s
+  piekstra.mychart -a 'smart/<org>/<patient>'` raises none).
+- Every command that uses a sign-in resolves `--profile` (or
+  `MYCHART_PROFILE`) with `pk_cli_config::profile::resolve` before the
+  vault or the network: there is no default.
 - Renewals run under `pk_cli_auth::refresh_lock::RefreshLock`, so an MCP
   server and a terminal never renew one sign-in at once.
 - Tests and `make verify` never read the real Keychain:
   `MYCHART_KEYCHAIN_SERVICE` names an empty service for the surface tests and
-  `smoke`; the in-process tests use `MemoryVault`.
+  `smoke`, and moves the vault's files to `vault.<service>/` beside the
+  config; the in-process tests use `MemoryVault`, or a vault over
+  `MemoryKeys`, and a stand-in window that never runs Chrome.
 - If a `mychart` call hangs, it waits on a Keychain approval. Stop calling it
   and tell the owner; a retry only raises another dialog.
 

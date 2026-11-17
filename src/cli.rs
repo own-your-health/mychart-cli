@@ -18,6 +18,12 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH", env = "MYCHART_CONFIG")]
     pub config: Option<std::path::PathBuf>,
 
+    /// The login a command runs as: one MyChart account at one
+    /// organization (`mychart profiles list`). Required by every command
+    /// that uses a sign-in; `MYCHART_PROFILE` when not given.
+    #[arg(long, global = true, value_name = "NAME")]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -41,6 +47,10 @@ pub enum Command {
     Documents(DocumentsCmd),
     /// One FHIR read as the signed-in patient: `mychart api GET Patient/<id>`.
     Api(ApiArgs),
+    /// The logins this install signs in as, one per MyChart account at an
+    /// organization (profile-list/v1).
+    #[command(subcommand)]
+    Profiles(ProfilesCmd),
     /// Non-secret settings: the client ids, the redirect port.
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -85,15 +95,15 @@ pub struct OrgListArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AuthCmd {
-    /// Sign in as a patient in the system browser (MyChart's own sign-in
-    /// page, PKCE, a redirect to this machine). One sign-in per
+    /// Sign in as a patient in the profile's own Chrome window (MyChart's
+    /// own sign-in page, PKCE, a redirect to this machine). One sign-in per
     /// organization and person; a parent with proxy access signs in once
     /// per person, picking them in MyChart.
     Login(LoginArgs),
     /// Each stored sign-in and whether it can still be used (auth-status/v1).
     Status,
-    /// Remove stored sign-ins (all, or those --org/--patient select);
-    /// --forget also clears the config.
+    /// Remove the profile's stored sign-ins (all, or those --org/--patient
+    /// select); --forget also clears the settings other than profiles.
     Logout(LogoutArgs),
     /// Whether an organization knows this app's client id and redirect,
     /// without signing in: one request to its authorize endpoint, no
@@ -119,7 +129,7 @@ pub struct LoginArgs {
     /// pick them with `--patient` later.
     #[arg(long, value_name = "WHO")]
     pub label: Option<String>,
-    /// Print the sign-in URL instead of opening a browser.
+    /// Print the sign-in URL instead of opening a window.
     #[arg(long)]
     pub no_browser: bool,
     /// How long to wait for the sign-in to finish, in minutes.
@@ -135,7 +145,7 @@ pub struct LogoutArgs {
     /// Only this patient (FHIR id or label).
     #[arg(long, value_name = "ID")]
     pub patient: Option<String>,
-    /// Also clear the config (client ids and settings).
+    /// Also clear the settings other than profiles (client ids, redirect).
     #[arg(long)]
     pub forget: bool,
 }
@@ -151,6 +161,27 @@ pub enum PatientsCmd {
         #[arg(long)]
         status: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProfilesCmd {
+    /// The configured profiles (profile-list/v1).
+    #[command(visible_alias = "ls")]
+    List,
+    /// Add a profile: 1-32 lowercase letters, digits, '-' or '_'
+    /// (`adult1-nyu`).
+    Add { name: String },
+    /// Remove a profile with its sign-ins and its browser profile.
+    Remove {
+        name: String,
+        /// Do not ask first.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Move the sign-ins mychart 0.4 kept (one Keychain item each) into
+    /// a profile, adding it if needed. No network, no new approval in
+    /// MyChart; a newly built mychart asks macOS once per item it reads.
+    Migrate { name: String },
 }
 
 #[derive(Subcommand, Debug)]
