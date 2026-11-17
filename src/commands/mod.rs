@@ -167,11 +167,14 @@ impl Ctx {
     /// Save the config owner-only (0600) and whole, through
     /// [`crate::fsutil::write_private`]: it holds each profile's patient
     /// contexts. cli-common v0.33.0's `ConfigStore::save` writes in place at
-    /// the umask's mode, which leaves the file readable by other users.
+    /// the umask's mode, which leaves the file readable by other users. A
+    /// config that is a symbolic link is written at the link's final target
+    /// and the link kept, as v0.33.1's `ConfigStore::save` does.
     pub fn save_config(&self, cfg: &Config) -> Result<(), CliError> {
         let body = serde_json::to_string_pretty(cfg)
             .map_err(|e| CliError::Other(format!("serializing config: {e}")))?;
-        crate::fsutil::write_private(&self.store.path()?, body.as_bytes())
+        let target = crate::fsutil::resolve_links(&self.store.path()?)?;
+        crate::fsutil::write_private(&target, body.as_bytes())
     }
 
     /// Change `p`'s settings and save the config.

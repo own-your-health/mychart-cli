@@ -84,7 +84,9 @@ Medical records are the most sensitive data a household has.
 - The config is written with `Ctx::save_config` (0600, whole, through
   `fsutil::write_private`), never `ConfigStore::save`, which in cli-common
   v0.33.0 writes in place at the umask's mode: the file holds patient
-  contexts.
+  contexts. A symlinked config is written at the link's final target
+  (`fsutil::resolve_links`) and the link kept, as v0.33.1's
+  `ConfigStore::save` does.
 - A patient context carries no profile: the commands resolve it and pass
   a `ProfileName` beside the context (`Ctx::live`, `auth::stored`,
   `session::login_command`), so a remedy always names it.

@@ -23,6 +23,39 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), CliError> {
         .map_err(|e| CliError::Other(format!("writing {}: {e}", path.display())))
 }
 
+/// Most links [`resolve_links`] follows, as Linux's `MAXSYMLINKS`.
+const MAX_LINKS: usize = 40;
+
+/// The path a write to `path` reaches by following symbolic links: each
+/// link's target in turn, a relative one taken from the link's directory,
+/// until a path that is not a link. That path need not exist, so a link to
+/// a file not yet created resolves to where the file goes. The same rule as
+/// cli-common v0.33.1's `private_file::resolve_links`, which its
+/// `ConfigStore::save` follows, so the config behaves alike before and
+/// after mychart moves to it.
+pub fn resolve_links(path: &Path) -> Result<std::path::PathBuf, CliError> {
+    let failed = |e: std::io::Error| CliError::Other(format!("resolving {}: {e}", path.display()));
+    let mut current = path.to_path_buf();
+    for _ in 0..=MAX_LINKS {
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = std::fs::read_link(&current).map_err(failed)?;
+                current = match current.parent().filter(|d| !d.as_os_str().is_empty()) {
+                    Some(dir) if target.is_relative() => dir.join(target),
+                    _ => target,
+                };
+            }
+            Ok(_) => return Ok(current),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(current),
+            Err(e) => return Err(failed(e)),
+        }
+    }
+    Err(CliError::Other(format!(
+        "resolving {}: more than {MAX_LINKS} symbolic links",
+        path.display()
+    )))
+}
+
 /// Create `dir` (and parents) owner-only.
 pub fn create_private_dir(dir: &Path) -> Result<(), CliError> {
     let mut b = std::fs::DirBuilder::new();
@@ -76,5 +109,29 @@ mod tests {
         let meta = std::fs::symlink_metadata(&path).unwrap();
         assert!(meta.file_type().is_file());
         assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_resolve_to_their_final_target_which_need_not_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("plain.json");
+        assert_eq!(resolve_links(&plain).unwrap(), plain);
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        std::os::unix::fs::symlink("b", &a).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("sub/final.json"), &b).unwrap();
+        assert_eq!(
+            resolve_links(&a).unwrap(),
+            dir.path().join("sub/final.json")
+        );
+        let x = dir.path().join("x");
+        let y = dir.path().join("y");
+        std::os::unix::fs::symlink("y", &x).unwrap();
+        std::os::unix::fs::symlink("x", &y).unwrap();
+        assert!(resolve_links(&x)
+            .unwrap_err()
+            .to_string()
+            .contains("more than 40"));
     }
 }
