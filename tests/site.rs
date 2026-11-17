@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 
 const CALLBACK: &str = include_str!("../site/callback.html");
 const INDEX: &str = include_str!("../site/index.html");
+const TERMS: &str = include_str!("../site/terms.html");
+const PRIVACY: &str = include_str!("../site/privacy.html");
 
 fn between<'a>(page: &'a str, open: &str, close: &str) -> Vec<&'a str> {
     page.split(open)
@@ -66,7 +68,7 @@ fn the_callback_page_sends_the_query_to_the_listener_and_nowhere_else() {
         "{script}"
     );
     assert!(CALLBACK.contains("<meta name=\"referrer\" content=\"no-referrer\">"));
-    for page in [CALLBACK, INDEX] {
+    for page in [CALLBACK, INDEX, TERMS, PRIVACY] {
         for loads in [
             " src=",
             "<link",
@@ -77,5 +79,28 @@ fn the_callback_page_sends_the_query_to_the_listener_and_nowhere_else() {
         ] {
             assert!(!page.contains(loads), "a page loads something: {loads}");
         }
+    }
+}
+
+/// The Terms and privacy pages Epic links from the app's consent screen:
+/// text and a hashed style, nothing that runs or loads.
+#[test]
+fn the_terms_and_privacy_pages_are_text_under_a_policy_that_allows_their_style() {
+    for page in [TERMS, PRIVACY] {
+        let policy = csp(page);
+        assert!(policy.starts_with("default-src 'none';"), "{policy}");
+        assert!(!page.contains("<script"));
+        let styles = between(page, "<style>", "</style>");
+        assert_eq!(styles.len(), 1);
+        assert!(
+            policy.contains(&format!("style-src {};", hash(styles[0]))),
+            "the style's hash is {}: update the policy",
+            hash(styles[0])
+        );
+        assert!(page.contains("<meta name=\"referrer\" content=\"no-referrer\">"));
+        assert!(
+            page.contains("Effective "),
+            "a page says when it took effect"
+        );
     }
 }
