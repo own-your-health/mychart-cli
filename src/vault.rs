@@ -22,9 +22,13 @@ use pk_med_smart::{decode_session, SessionStore, SmartSession, SESSION_FORMAT};
 pub const UPDATE_REMEDY: &str = "update mychart with `mychart self-update`: a newer mychart \
      stored this sign-in";
 
-/// What to do about a stored sign-in that does not read.
-pub const UNREADABLE_REMEDY: &str = "sign in again with `mychart auth login --org <ORG>`; the new \
-     sign-in replaces it (a sign-in mychart 0.1 stored does not read in 0.2)";
+/// What to do about a stored sign-in in `profile` that does not read.
+pub fn unreadable_remedy(profile: &ProfileName) -> String {
+    format!(
+        "sign in again with `mychart auth login --profile {profile} --org <ORG>`; the new \
+         sign-in replaces it (a sign-in mychart 0.1 stored does not read in 0.2)"
+    )
+}
 
 pub trait Vault: Send + Sync {
     fn read(&self, name: &str) -> Result<Option<String>, CliError>;
@@ -101,9 +105,9 @@ impl SessionStore for Sessions {
                 CliError::Auth(e.message().to_string())
                     .because(Reason::CredentialUnreadable)
                     .with_remedy(if newer {
-                        UPDATE_REMEDY
+                        UPDATE_REMEDY.to_string()
                     } else {
-                        UNREADABLE_REMEDY
+                        unreadable_remedy(&self.profile)
                     })
             }),
         }
@@ -190,6 +194,10 @@ mod tests {
         let e = sessions.load("smart/o/p").unwrap_err();
         assert_eq!(e.exit_code(), 3);
         assert!(e.to_string().contains("sign in again"), "{e}");
+        assert!(
+            e.remedy().unwrap().contains("--profile adult1 --org"),
+            "{e}"
+        );
         assert!(!e.to_string().contains("\"x\""), "{e}");
         assert!(sessions.delete("smart/o/p").unwrap());
         assert!(!sessions.delete("smart/o/p").unwrap());

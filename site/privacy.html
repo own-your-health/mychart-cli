@@ -28,8 +28,9 @@
       <p>Only to the computer mychart runs on: shown in its output, or saved to a file or folder you name. mychart sends them to no other server. It sells and shares nothing, and has no advertising, analytics, tracking or crash reports.</p>
       <h2>What it keeps on your computer</h2>
       <ul>
-        <li>Your sign-in (access tokens, and a key made on your computer) in the system's credential store: the Keychain on macOS.</li>
-        <li>A list of who is signed in (patient ids, the labels you chose, and the health system), with no record contents, under <code>~/.config/mychart/</code>.</li>
+        <li>Your sign-ins (access tokens, and a key made on your computer), encrypted under <code>~/.config/mychart/vault/</code> with one key in the macOS Keychain.</li>
+        <li>Your profiles and who each one signed in (patient ids, the labels you chose, and the health system), with no record contents, in <code>~/.config/mychart/config.json</code>.</li>
+        <li>Each profile's own browser profile, which keeps your health system's sign-in cookies.</li>
         <li>A copy of Epic's public directory of health systems, under <code>~/.cache/mychart/</code>.</li>
       </ul>
       <h2>Who else sees anything</h2>

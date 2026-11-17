@@ -375,10 +375,22 @@ fn config_round_trips() {
         .as_str()
         .unwrap()
         .ends_with("mychart/config.json"));
-    as_acct1(&home)
-        .args(["auth", "logout", "--forget"])
+    let out = as_acct1(&home)
+        .args(["auth", "logout", "--forget", "--json"])
         .assert()
-        .success();
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(
+        (
+            &v["settings_cleared"],
+            &v["profiles_kept"],
+            &v["config_cleared"]
+        ),
+        (&Value::Bool(true), &Value::Bool(true), &Value::Bool(true))
+    );
     let out = as_acct1(&home)
         .args(["config", "show", "--json"])
         .assert()
@@ -565,6 +577,21 @@ fn profiles_round_trip() {
     assert_eq!(
         v["profiles"],
         serde_json::json!([{"name": "acct1"}, {"name": "adult2-org"}])
+    );
+    // `config show` names the profiles and counts their patients, nothing
+    // more.
+    let shown = json_of(
+        &mychart(&home)
+            .args(["config", "show", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert_eq!(
+        shown["profiles"],
+        serde_json::json!([{"name": "acct1", "patients": 0}, {"name": "adult2-org", "patients": 0}])
     );
     mychart(&home)
         .args(["profiles", "remove", "acct1"])

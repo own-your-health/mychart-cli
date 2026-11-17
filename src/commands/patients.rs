@@ -13,7 +13,7 @@ pub fn run(ctx: &Ctx, cmd: &PatientsCmd) -> Result<(), CliError> {
     let mut items = Vec::new();
     for c in ctx.contexts(&profile)? {
         let v = if *status {
-            let held = stored(ctx, &c)?;
+            let held = stored(ctx, &profile, &c)?;
             let mut v = status_row(&c, &held);
             if let Stored::Missing = held {
                 v["status"] = json!({ "authenticated": false });

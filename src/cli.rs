@@ -178,10 +178,19 @@ pub enum ProfilesCmd {
         #[arg(long)]
         force: bool,
     },
-    /// Move the sign-ins mychart 0.4 kept (one Keychain item each) into
-    /// a profile, adding it if needed. No network, no new approval in
-    /// MyChart; a newly built mychart asks macOS once per item it reads.
-    Migrate { name: String },
+    /// Move one login's sign-ins that mychart 0.4 kept (one Keychain item
+    /// each) into a profile, adding it if needed. No network, no new
+    /// approval in MyChart; a newly built mychart asks macOS once per item
+    /// it reads. One-way: mychart 0.4 no longer finds what moved.
+    Migrate {
+        name: String,
+        /// Only the sign-ins at this organization (its id or name).
+        #[arg(long, value_name = "ORG")]
+        org: Option<String>,
+        /// Only this patient (a label or FHIR id); repeat for several.
+        #[arg(long, value_name = "ID")]
+        patient: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

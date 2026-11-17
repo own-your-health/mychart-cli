@@ -72,9 +72,18 @@ Medical records are the most sensitive data a household has.
   `piekstra.mychart`, account `vault-key`; `pk_cli_auth::vault`). Never
   printed, logged, or put in argv. mychart 0.4 kept one Keychain item per
   (organization, patient), `smart/<organization>/<patient>`; `profiles
-  migrate` moves them in, and deletes a test or sandbox item rather than
-  moving it would cost a dialog (`security delete-generic-password -s
-  piekstra.mychart -a 'smart/<org>/<patient>'` raises none).
+  migrate` moves one login's in (organization and `fhirUser`), and leaves
+  the other rows of `contexts.json` for the next profile. Delete a test or
+  sandbox item beforehand rather than move it, which costs a dialog
+  (`security delete-generic-password -s piekstra.mychart -a
+  'smart/<org>/<patient>'` raises none).
+- The vault, the refresh lock and the browser profiles are this
+  computer's user's (cli-common anchors them to the home directory), not a
+  config file's: a profile name means one login whichever config names
+  it. `Ctx::vault_note` says so when the config is not beside the vault.
+- A patient context carries no profile: the commands resolve it and pass
+  a `ProfileName` beside the context (`Ctx::live`, `auth::stored`,
+  `session::login_command`), so a remedy always names it.
 - Every command that uses a sign-in resolves `--profile` (or
   `MYCHART_PROFILE`) with `pk_cli_config::profile::resolve` before the
   vault or the network: there is no default.

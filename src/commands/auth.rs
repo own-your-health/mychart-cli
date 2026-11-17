@@ -85,7 +85,7 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
             "known" => println!(
                 "{name} knows this app's client id (config key {client}) with the redirect \
                  {redirect}: \
-                 `{BIN} auth login --org {id}` can sign in"
+                 `{BIN} auth login --profile <NAME> --org {id}` can sign in"
             ),
             "unknown" => println!(
                 "{name} does not know this app's client id (config key {client}) yet. Epic \
@@ -100,7 +100,8 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
             ),
             _ => println!(
                 "{name} answered HTTP {}, which {BIN} does not recognize; \
-                 `{BIN} auth login --org {id} --no-browser` prints the address to open",
+                 `{BIN} auth login --profile <NAME> --org {id} --no-browser` prints the \
+                 address to open",
                 v["status"]
             ),
         }
@@ -344,7 +345,6 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         relationship: epic::relationship(fhir_user.as_deref(), &patient).map(str::to_string),
         fhir_user,
         signed_in_at: rfc3339(at),
-        profile: Some(profile.clone()),
     };
     ctx.update_profile(&profile, |settings| settings.upsert(context.clone()))?;
 
@@ -494,11 +494,11 @@ pub fn usable(row: &Value) -> bool {
 
 /// A context's stored session. A Keychain that refuses the read is the
 /// error; an item that does not read is [`Stored::Unreadable`].
-pub fn stored(ctx: &Ctx, c: &Context) -> Result<Stored, CliError> {
-    let profile = c
-        .profile
-        .as_ref()
-        .ok_or_else(|| CliError::Other("a patient context was read without its profile".into()))?;
+pub fn stored(
+    ctx: &Ctx,
+    profile: &pk_cli_config::profile::ProfileName,
+    c: &Context,
+) -> Result<Stored, CliError> {
     let Some(text) = ctx.sessions(profile).read(&c.account())? else {
         return Ok(Stored::Missing);
     };
@@ -515,7 +515,7 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     let mut any_stored = false;
     let mut any_usable = false;
     for c in &contexts {
-        let s = stored(ctx, c)?;
+        let s = stored(ctx, &profile, c)?;
         any_stored |= s.in_keychain();
         any_usable |= s.session().is_some_and(|s| session::usable(s, now()));
         rows.push(status_row(c, &s));
@@ -577,7 +577,12 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
                 None => None,
             };
             match patient {
-                Some(p) => vec![session::pick(&contexts, Some(p), org_id.as_deref())?],
+                Some(p) => vec![session::pick(
+                    &profile,
+                    &contexts,
+                    Some(p),
+                    org_id.as_deref(),
+                )?],
                 None => contexts
                     .iter()
                     .filter(|c| Some(&c.organization) == org_id.as_ref())
@@ -602,9 +607,13 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
             ..Config::default()
         })?;
     }
+    // `config_cleared` is 0.4's name for `settings_cleared`, kept through
+    // 0.5: since 0.5 the profiles stay (`profiles_kept`).
     let payload = json!({
         "profile": profile.as_str(),
         "removed": removed,
+        "settings_cleared": args.forget,
+        "profiles_kept": args.forget,
         "config_cleared": args.forget,
     });
     output::emit(ctx.json(), "auth-logout", payload, |p| {
@@ -612,7 +621,11 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
         println!(
             "signed out of {n} patient context{}{}",
             if n == 1 { "" } else { "s" },
-            if args.forget { "; config cleared" } else { "" }
+            if args.forget {
+                "; settings cleared, profiles kept"
+            } else {
+                ""
+            }
         );
     });
     Ok(())

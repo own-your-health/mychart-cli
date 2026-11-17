@@ -17,7 +17,7 @@ pub fn run(ctx: &Ctx, cmd: &ProfilesCmd) -> Result<(), CliError> {
         ProfilesCmd::List => list(ctx),
         ProfilesCmd::Add { name } => add(ctx, name),
         ProfilesCmd::Remove { name, force } => remove(ctx, name, *force),
-        ProfilesCmd::Migrate { name } => migrate(ctx, name),
+        ProfilesCmd::Migrate { name, org, patient } => migrate(ctx, name, org.as_deref(), patient),
     }
 }
 
@@ -82,6 +82,7 @@ fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
         return Err(CliError::NotFound(format!("no profile `{name}`"))
             .with_remedy(format!("`{BIN} profiles list` shows the configured ones")));
     }
+    ctx.note_vault();
     confirm::gate(
         &ctx.common,
         force,
@@ -127,35 +128,78 @@ fn remove(ctx: &Ctx, name: &str, force: bool) -> Result<(), CliError> {
     Ok(())
 }
 
-/// mychart 0.4's sign-ins (a Keychain item each, listed in `contexts.json`)
-/// into `name`, through pk-med-smart's `migrate_sessions`: no network, no
-/// new approval in MyChart, and a failure leaves each old item in place
-/// for the next run. Contexts whose sign-in reached the profile move with
-/// it; the others are dropped, since nothing is left to sign in with.
-fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
+/// One login's sign-ins from mychart 0.4 (a Keychain item each, listed in
+/// `contexts.json`) into `name`, through pk-med-smart's `migrate_sessions`:
+/// no network, no new approval in MyChart, and a failure leaves each old
+/// item in place for the next run. `--org` and `--patient` choose the rows;
+/// rows that span more than one login (organization and signed-in user)
+/// are refused, since a profile is one login. The rows not chosen stay in
+/// `contexts.json` for another profile's migration. One-way: mychart 0.4
+/// finds neither the items nor the rows that moved.
+fn migrate(ctx: &Ctx, name: &str, org: Option<&str>, patients: &[String]) -> Result<(), CliError> {
     let name = ProfileName::parse(name)?;
     let index = ctx.legacy_index()?;
     let rows = index.load()?;
-    let mut cfg = ctx.config()?;
-    let added = cfg.profiles.add(name.clone());
-    if added {
-        ctx.store.save(&cfg)?;
+    let wanted = |c: &Context| {
+        org.is_none_or(|o| c.organization == o || c.organization_name.eq_ignore_ascii_case(o))
+            && (patients.is_empty()
+                || patients
+                    .iter()
+                    .any(|p| c.id == *p || c.label.as_deref() == Some(p.as_str())))
+    };
+    let (chosen, rest): (Vec<Context>, Vec<Context>) = rows.into_iter().partition(wanted);
+    if let Some(p) = patients.iter().find(|p| {
+        !chosen
+            .iter()
+            .any(|c| c.id == **p || c.label.as_deref() == Some(p.as_str()))
+    }) {
+        return Err(CliError::NotFound(format!(
+            "no sign-in mychart 0.4 kept is patient `{p}`{}",
+            org.map(|o| format!(" at {o}")).unwrap_or_default()
+        )));
     }
+    if chosen.is_empty() && org.is_some() {
+        return Err(CliError::NotFound(format!(
+            "no sign-in mychart 0.4 kept is at {}",
+            org.unwrap_or_default()
+        )));
+    }
+    let logins = logins(&chosen);
+    if logins.len() > 1 {
+        return Err(CliError::Usage(format!(
+            "mychart 0.4 kept {} logins' sign-ins and a profile holds one: {}",
+            logins.len(),
+            logins.join("; ")
+        ))
+        .with_remedy(format!(
+            "move one login per profile: `{BIN} profiles migrate <NAME> --org <ORG> [--patient \
+             <WHO>]`"
+        )));
+    }
+    ctx.note_vault();
     let vault = ctx.vault.shared().ok_or_else(|| {
         CliError::Other(
             "moving sign-ins needs the CLI's vault, which this run does not have".into(),
         )
     })?;
-    let accounts: Vec<String> = rows.iter().map(Context::account).collect();
+    let mut cfg = ctx.config()?;
+    let added = cfg.profiles.add(name.clone());
+    if added {
+        ctx.store.save(&cfg)?;
+    }
+    let accounts: Vec<String> = chosen.iter().map(Context::account).collect();
     let done = pk_med_smart::migrate_sessions(
         &*ctx.legacy,
         &ProfileSessions::new(vault, name.clone()),
         &accounts,
         &ctx.lock,
     )?;
+    // Every chosen item moved, was already here, or was never there (a
+    // failure is the error above): a row whose sign-in is not here now has
+    // nothing left to sign in with.
     let sessions = ctx.sessions(&name);
     let mut moved = Vec::new();
-    for row in rows {
+    for row in chosen {
         if sessions.read(&row.account())?.is_some() {
             moved.push(row);
         }
@@ -166,15 +210,20 @@ fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
             settings.upsert(row);
         }
     })?;
-    match std::fs::remove_file(index.path()) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => {
-            return Err(CliError::Other(format!(
-                "removing {}: {e}",
-                index.path().display()
-            )))
+    let left = rest.len();
+    if rest.is_empty() {
+        match std::fs::remove_file(index.path()) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(CliError::Other(format!(
+                    "removing {}: {e}",
+                    index.path().display()
+                )))
+            }
         }
+    } else {
+        index.save(&rest)?;
     }
     output::emit(
         ctx.json(),
@@ -186,19 +235,49 @@ fn migrate(ctx: &Ctx, name: &str) -> Result<(), CliError> {
             "kept": done.kept,
             "absent": done.absent,
             "contexts": contexts,
+            "left": left,
         }),
         |_| {
             println!(
                 "Profile {name}: {} sign-in{} moved, {} already there, {} not found; {} patient \
-                 context{} in the profile",
+                 context{} in the profile; mychart 0.4 no longer finds them",
                 done.moved,
                 if done.moved == 1 { "" } else { "s" },
                 done.kept,
                 done.absent,
                 contexts,
                 if contexts == 1 { "" } else { "s" },
-            )
+            );
+            if left > 0 {
+                println!(
+                    "{left} of mychart 0.4's sign-ins are another login's and stay for its \
+                     profile: `{BIN} profiles migrate <NAME> --org <ORG>`"
+                );
+            }
         },
     );
     Ok(())
+}
+
+/// Each login among `rows`, described: its organization and the patients
+/// it signed in. A login is an organization and the user who signed in
+/// (`fhirUser`), so a parent's own row and a child's row through proxy
+/// access are one.
+fn logins(rows: &[Context]) -> Vec<String> {
+    let mut seen: Vec<(&str, Option<&str>, String, Vec<String>)> = Vec::new();
+    for c in rows {
+        let key = (c.organization.as_str(), c.fhir_user.as_deref());
+        match seen.iter_mut().find(|(o, u, ..)| (*o, *u) == key) {
+            Some((.., who)) => who.push(c.display()),
+            None => seen.push((
+                key.0,
+                key.1,
+                format!("{} ({})", c.organization_name, c.organization),
+                vec![c.display()],
+            )),
+        }
+    }
+    seen.into_iter()
+        .map(|(_, _, org, who)| format!("{org}: {}", who.join(", ")))
+        .collect()
 }

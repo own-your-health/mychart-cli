@@ -5,6 +5,7 @@ use pk_cli_core::{output, CliError};
 use super::Ctx;
 use crate::cli::ConfigCmd;
 use crate::config::Config;
+use crate::session::ProfileSettings;
 
 pub fn run(ctx: &Ctx, cmd: &ConfigCmd) -> Result<(), CliError> {
     match cmd {
@@ -20,7 +21,21 @@ pub fn run(ctx: &Ctx, cmd: &ConfigCmd) -> Result<(), CliError> {
         }
         ConfigCmd::Show => {
             let cfg: Config = ctx.config()?;
-            let v = super::to_json(&cfg)?;
+            let mut v = super::to_json(&cfg)?;
+            // A profile's patient ids and labels stay out of what is pasted
+            // to debug a setting: `profiles list` and `patients list` show
+            // them.
+            if let Some(o) = v.as_object_mut().filter(|_| !cfg.profiles.is_empty()) {
+                let mut profiles = Vec::new();
+                for name in cfg.profiles.names() {
+                    let settings: ProfileSettings = cfg.profiles.settings(name)?;
+                    profiles.push(serde_json::json!({
+                        "name": name.as_str(),
+                        "patients": settings.contexts.len(),
+                    }));
+                }
+                o.insert("profiles".into(), profiles.into());
+            }
             if ctx.json() {
                 output::json(&output::tagged("config", v));
             } else if v.as_object().is_some_and(|o| o.is_empty()) {

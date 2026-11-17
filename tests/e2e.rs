@@ -119,6 +119,7 @@ fn ctx(dir: &Path, mock: &MockEpic, configure: impl FnOnce(&mut Config)) -> Ctx 
             Err(CliError::Other("no Chrome in the tests".into()))
         }),
         browser: Box::new(browser),
+        vault_note: None,
     }
 }
 
@@ -331,14 +332,14 @@ fn a_parent_reaches_a_child_through_proxy_access() {
 
     let contexts = ctx.contexts(&p()).unwrap();
     assert_eq!(contexts.len(), 2);
-    let child = session::pick(&contexts, Some("child1"), None).unwrap();
+    let child = session::pick(&p(), &contexts, Some("child1"), None).unwrap();
     assert_eq!(child.id, CHILD_PATIENT);
     assert_eq!(child.relationship.as_deref(), Some("proxy"));
     assert_eq!(child.fhir_user.as_deref(), Some(PROXY_USER));
     assert!(stored(&ctx, CHILD_PATIENT).renewable());
     // Two people held: a command that reads records must be told which.
     assert_eq!(
-        session::pick(&contexts, None, None)
+        session::pick(&p(), &contexts, None, None)
             .unwrap_err()
             .exit_code(),
         2
@@ -664,7 +665,6 @@ fn export_to_a_file_is_for_synthetic_servers_only() {
             relationship: Some("self".into()),
             fhir_user: None,
             signed_in_at: "2026-01-01T00:00:00Z".into(),
-            profile: None,
         })
     })
     .unwrap();
@@ -1254,7 +1254,7 @@ fn a_sign_in_stored_by_0_1_asks_for_a_new_one_and_logout_removes_it() {
         )
         .unwrap();
 
-    let held = commands::auth::stored(&ctx, &c).unwrap();
+    let held = commands::auth::stored(&ctx, &p(), &c).unwrap();
     let row = commands::auth::status_row(&c, &held);
     assert_eq!(row["status"]["authenticated"], false, "{row}");
     assert!(row["status"]["unreadable"].is_string(), "{row}");
@@ -1790,6 +1790,8 @@ fn profiles_migrate_moves_the_sign_ins_mychart_0_4_kept() {
             ctx,
             &mychart::cli::ProfilesCmd::Migrate {
                 name: p().to_string(),
+                org: None,
+                patient: vec![],
             },
         )
     };
@@ -1854,4 +1856,82 @@ fn profiles_remove_takes_the_sign_ins_and_the_browser_profile_with_it() {
     assert!(!ctx.config().unwrap().profiles.contains(&p()));
     let e = commands::profiles::run(&ctx, &remove(true)).unwrap_err();
     assert_eq!(e.exit_code(), 4, "{e}");
+}
+
+/// A profile is one login: rows of 0.4's index from two logins are refused
+/// before any Keychain read, `--org` moves one login's, and the other's stay
+/// in `contexts.json` for its own profile, which empties it.
+#[test]
+fn profiles_migrate_moves_one_login_and_leaves_the_others() {
+    use pk_cli_auth::vault::KeyStore;
+    use pk_cli_secrets::Secret;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    let keys = Arc::new(MemoryKeys::new());
+    ctx.vault = Arc::new(pk_cli_auth::vault::Vault::new(
+        keys.clone(),
+        dir.path().join("vault"),
+    ));
+    let legacy = Arc::new(MemoryKeys::new());
+    ctx.legacy = legacy.clone();
+    login(&ctx, "adult1");
+    let a = ctx.contexts(&p()).unwrap().remove(0);
+    let text = sessions(&ctx).read(&a.account()).unwrap().unwrap();
+    sessions(&ctx).delete(&a.account()).unwrap();
+    ctx.update_profile(&p(), |s| s.remove(&a.organization, &a.id))
+        .unwrap();
+    // Another login, at another organization: invented.
+    let b = session::Context {
+        id: "pb".into(),
+        organization: "9999".into(),
+        organization_name: "Other Health".into(),
+        label: Some("adult2".into()),
+        fhir_user: Some("Patient/pb".into()),
+        ..a.clone()
+    };
+    for c in [&a, &b] {
+        legacy
+            .set(&c.account(), &Secret::new(text.clone()))
+            .unwrap();
+    }
+    let index = session::Index::beside(&ctx.store.path().unwrap());
+    index.save(&[a.clone(), b.clone()]).unwrap();
+    let migrate = |name: &str, org: Option<&str>, patient: &[&str]| {
+        commands::profiles::run(
+            &ctx,
+            &mychart::cli::ProfilesCmd::Migrate {
+                name: name.into(),
+                org: org.map(str::to_string),
+                patient: patient.iter().map(|p| p.to_string()).collect(),
+            },
+        )
+    };
+
+    let key_reads = keys.reads();
+    let e = migrate("acct1", None, &[]).unwrap_err();
+    assert_eq!(e.exit_code(), 2, "{e}");
+    assert!(e.to_string().contains("2 logins"), "{e}");
+    assert_eq!((legacy.reads(), keys.reads()), (0, key_reads));
+    assert_eq!(index.load().unwrap().len(), 2);
+    assert_eq!(
+        migrate("acct1", None, &["nobody"]).unwrap_err().exit_code(),
+        4
+    );
+    assert_eq!(
+        migrate("acct1", Some("8888"), &[]).unwrap_err().exit_code(),
+        4
+    );
+
+    migrate("acct1", Some(ORG_ID), &[]).unwrap();
+    assert_eq!(ctx.contexts(&p()).unwrap()[0].id, a.id);
+    assert!(legacy.get(&a.account()).unwrap().is_none());
+    assert_eq!(index.load().unwrap(), std::slice::from_ref(&b));
+    assert!(legacy.get(&b.account()).unwrap().is_some());
+
+    migrate("acct2", Some("Other Health"), &["adult2"]).unwrap();
+    let acct2 = ProfileName::parse("acct2").unwrap();
+    assert_eq!(ctx.contexts(&acct2).unwrap()[0].id, "pb");
+    assert_eq!(ctx.contexts(&p()).unwrap().len(), 1);
+    assert!(!index.path().exists());
 }

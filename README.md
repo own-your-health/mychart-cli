@@ -81,16 +81,16 @@ Release assets: `mychart-<target>.tar.gz` and `.sha256` for
 | Command | What it does |
 |---|---|
 | `orgs refresh\|list\|search` | Epic's directory of organizations (`org-list/v1`), downloaded at most weekly into `~/.cache/mychart` |
-| `profiles list\|add\|remove\|migrate` | The logins this install signs in as, one per MyChart account at an organization (`profile-list/v1`); `migrate` moves mychart 0.4's sign-ins into one |
+| `profiles list\|add\|remove\|migrate` | The logins this install signs in as, one per MyChart account at an organization (`profile-list/v1`); `migrate [--org <ORG>] [--patient <WHO>]` moves one login's sign-ins from mychart 0.4 into one, for good |
 | `auth login --org <ORG> [--label <WHO>]` | Standalone patient launch in the profile's Chrome window (PKCE), then Epic's dynamic client registration so access lasts for the period chosen in MyChart |
-| `auth status` / `auth logout` | Each of the profile's sign-ins and its state (`auth-status/v1`); remove one or all |
+| `auth status` / `auth logout [--forget]` | Each of the profile's sign-ins and its state (`auth-status/v1`); remove one or all, and with `--forget` the settings other than profiles |
 | `auth probe --org <ORG>` | Whether the organization knows this app's client id and redirect, without signing in (`auth-probe/v1`) |
 | `patients list [--status]` | The patients signed in, each with `self` or `proxy` (`patient-list/v1`) |
 | `records export --patient <ID> [--since D] --ndjson` | Every resource the organization serves, documents included, as `records-stream/v1` |
 | `records export --patient <ID> -o <DIR>` | The same stream into `<DIR>/records.ndjson`, for Epic's sandbox and test servers only (`records-export/v1`); one cut short goes to `records.incomplete.ndjson` |
 | `documents list\|download` | Notes, reports and scans (`documents/v1`) |
 | `api GET <path>` | One FHIR read as the signed-in patient |
-| `config path\|show\|set\|unset` | Client ids, redirect port and https redirect page, scope, directory URL |
+| `config path\|show\|set\|unset` | Client ids, redirect port and https redirect page, scope, directory URL; `show` lists profiles by name and patient count only |
 | `info`, `completions`, `self-update` | Family standard |
 
 Every command takes `--json`. Every command that uses a sign-in (`auth
@@ -126,8 +126,11 @@ Tokens and the key are one encrypted file per profile and patient under
 `~/.config/mychart/vault/` (`<profile>/<organization>/<patient>`), sealed
 with one key in the macOS Keychain (`piekstra.mychart`, account
 `vault-key`), so a newly built mychart asks macOS once, however many
-sign-ins it keeps. Nothing secret is written anywhere else. Sign-ins
-mychart 0.4 made (a Keychain item each) move in with `mychart profiles
+sign-ins it keeps. Nothing secret is written anywhere else. The vault and
+each profile's Chrome profile belong to your user on this computer, not
+to a config file: a second config naming the same profile is the same
+login. Sign-ins mychart 0.4 made (a Keychain item each) move in with
+`mychart profiles
 migrate <NAME>`: no network, no new approval in MyChart.
 
 ## Kaiser Permanente

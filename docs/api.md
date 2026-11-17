@@ -207,12 +207,23 @@ vault (`pk_cli_auth::vault`): an encrypted file under
 macOS once rather than once per sign-in. A profile is one MyChart account
 at one organization; every command that uses a sign-in names it
 (`--profile`, or `MYCHART_PROFILE`), with no default, and its contexts are
-its settings in the config. mychart 0.4 and earlier kept a Keychain item
-per sign-in, account `smart/<organization>/<patient>`, listed in
-`contexts.json`; `mychart profiles migrate <NAME>` moves them into a
-profile with pk-med-smart's `migrate_sessions` (no network, no new
-approval in MyChart, one macOS dialog per item for a newly built binary;
-a failure leaves the item for the next run). mychart 0.1 stored its own
+its settings in the config (`config show` prints each profile's name and
+how many patients it holds, not the patients). The vault and the browser
+profiles belong to this computer's user, not to a config file: a second
+config (`--config`, `MYCHART_CONFIG`) naming the same profile is the same
+login, and mychart says so when a config is not beside the vault.
+mychart 0.4 and earlier kept a Keychain item per sign-in, account
+`smart/<organization>/<patient>`, listed in `contexts.json`. `mychart
+profiles migrate <NAME> [--org <ORG>] [--patient <WHO>]` moves one
+login's into a profile with pk-med-smart's `migrate_sessions` (no
+network, no new approval in MyChart, one macOS dialog per item for a
+newly built binary; a failure leaves the item for the next run). A login
+is an organization and the user who signed in (`fhirUser`), so a parent's
+own sign-in and a child's through proxy access move together; rows from
+two logins are refused (exit 2, naming them) until `--org` or `--patient`
+picks one, and the rows not moved stay in `contexts.json` for the next
+profile. It is one-way: mychart 0.4 finds neither the moved items nor
+their rows. mychart 0.1 stored its own
 shape under the same account. 0.2 does not read it: `auth status` lists it
 with `status.unreadable`, any command for that patient exits 3 with the
 `auth login` command that replaces it, and `auth logout` deletes it unread.

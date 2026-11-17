@@ -66,7 +66,7 @@ bar (Created, Test, Ready).
 | SMART scope version | **SMART v1** (the default). mychart asks for `openid fhirUser`; Epic adds the scopes of the selected APIs. |
 | FHIR ID generation | **Use Unconstrained FHIR IDs** (the default). Ids can then run past FHIR's 64 characters; mychart accepts them. The other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR Resources", does not limit every resource. |
 | Summary (500 characters at most) | `A command-line tool a household uses to download its members' own records from MyChart through Epic's patient-access FHIR API. It only reads. Records stay on the household's computer.` |
-| Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the household's own records, only reads, keeps them on the household's computer, signs in through the system browser, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
+| Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the household's own records, only reads, keeps them on the household's computer, signs in through a browser window of its own, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
 | Intended Purposes | **Individuals' Access to their EHI** only. |
 | Intended Users | **Individual/Caregiver** only. |
 | Terms and Conditions URL | Required for **Save & Ready for Production** on a patient-facing app. Choose `https://` and enter `piekstra.github.io/mychart-cli/terms`, the Terms of Use this repository publishes, or a page of your own. It cannot change after Ready for Production. |

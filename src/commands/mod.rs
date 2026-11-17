@@ -79,6 +79,10 @@ pub struct Ctx {
     /// Opens an address in the default browser, when the window cannot
     /// open; returns whether something was launched.
     pub browser: Box<dyn Fn(&str) -> bool>,
+    /// Said before a command uses the vault, when the config file is not
+    /// beside it: profiles' sign-ins and browser profiles are this
+    /// computer's, whichever config names them.
+    pub vault_note: Option<String>,
 }
 
 impl Ctx {
@@ -102,6 +106,10 @@ impl Ctx {
             }
             None => pk_cli_auth::vault::Vault::for_binary(BIN)?,
         };
+        let vault_note = match test_service() {
+            Some(_) => None,
+            None => vault_note(&store.path()?, vault.dir()),
+        };
         Ok(Ctx {
             common,
             profile,
@@ -123,6 +131,7 @@ impl Ctx {
                     .map(|w| Box::new(w) as Window)
             }),
             browser: Box::new(crate::browser::open_browser),
+            vault_note,
         })
     }
 
@@ -144,20 +153,15 @@ impl Ctx {
     /// any Keychain read or request.
     pub fn profile_name(&self) -> Result<ProfileName, CliError> {
         let cfg = self.config()?;
-        profile::resolve(self.profile.as_deref(), PROFILE_ENV, &cfg.profiles, BIN)
+        let p = profile::resolve(self.profile.as_deref(), PROFILE_ENV, &cfg.profiles, BIN)?;
+        self.note_vault();
+        Ok(p)
     }
 
-    /// `p`'s patient contexts, each marked with `p`.
+    /// `p`'s patient contexts.
     pub fn contexts(&self, p: &ProfileName) -> Result<Vec<Context>, CliError> {
         let settings: ProfileSettings = self.config()?.profiles.settings(p)?;
-        Ok(settings
-            .contexts
-            .into_iter()
-            .map(|c| Context {
-                profile: Some(p.clone()),
-                ..c
-            })
-            .collect())
+        Ok(settings.contexts)
     }
 
     /// Change `p`'s settings and save the config.
@@ -180,10 +184,22 @@ impl Ctx {
 
     /// The signed-in patient `who` names in the command's profile (the
     /// only one, when the profile holds one).
-    pub fn signed_in(&self, who: &crate::cli::PatientArgs) -> Result<Context, CliError> {
+    pub fn signed_in(
+        &self,
+        who: &crate::cli::PatientArgs,
+    ) -> Result<(ProfileName, Context), CliError> {
         let p = self.profile_name()?;
         let contexts = self.contexts(&p)?;
-        crate::session::pick(&contexts, who.patient.as_deref(), who.org.as_deref()).cloned()
+        let c = crate::session::pick(&p, &contexts, who.patient.as_deref(), who.org.as_deref())?
+            .clone();
+        Ok((p, c))
+    }
+
+    /// [`Self::vault_note`], when there is one.
+    pub fn note_vault(&self) {
+        if let Some(n) = &self.vault_note {
+            self.note(n);
+        }
     }
 
     pub fn note(&self, msg: impl AsRef<str>) {
@@ -202,15 +218,14 @@ impl Ctx {
         }
     }
 
-    /// `c`'s sign-in for a run of requests, renewed first when it is due.
+    /// `c`'s sign-in in profile `p` for a run of requests, renewed first
+    /// when it is due.
     pub fn live(
         &self,
         t: &BlockingTransport,
+        p: &ProfileName,
         c: &Context,
     ) -> Result<crate::session::Live<BlockingTransport>, CliError> {
-        let p = c.profile.as_ref().ok_or_else(|| {
-            CliError::Other("a patient context was read without its profile".into())
-        })?;
         crate::session::Live::start(
             t,
             self.sessions(p),
@@ -219,6 +234,21 @@ impl Ctx {
             Some(std::sync::Arc::new(self.notes())),
         )
     }
+}
+
+/// The note for a config file that is not beside the vault (`--config`,
+/// `MYCHART_CONFIG` or `XDG_CONFIG_HOME` elsewhere): the vault and the
+/// browser profiles belong to this computer's user, not to a config file.
+pub fn vault_note(config: &std::path::Path, vault: &std::path::Path) -> Option<String> {
+    (config.parent() != vault.parent()).then(|| {
+        format!(
+            "note: {} is not beside this computer's vault: its profiles' sign-ins are in {} and \
+             their browser profiles in the user's data directory, shared with any config file \
+             that names the same profile",
+            config.display(),
+            vault.display()
+        )
+    })
 }
 
 fn test_service() -> Option<String> {
@@ -249,4 +279,23 @@ pub fn to_json<T: serde::Serialize>(dto: &T) -> Result<serde_json::Value, CliErr
 /// RFC 3339 for unix seconds.
 pub fn rfc3339(secs: i64) -> String {
     pk_cli_core::dates::fmt_rfc3339(secs)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn only_a_config_away_from_the_vault_is_noted() {
+        let vault = Path::new("/home/u/.config/mychart/vault");
+        assert_eq!(
+            super::vault_note(Path::new("/home/u/.config/mychart/config.json"), vault),
+            None
+        );
+        let n = super::vault_note(Path::new("/tmp/alt/config.json"), vault).unwrap();
+        assert!(
+            n.contains("/tmp/alt/config.json") && n.contains(vault.to_str().unwrap()),
+            "{n}"
+        );
+    }
 }
