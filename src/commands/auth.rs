@@ -2,18 +2,19 @@
 
 use std::time::Duration;
 
-use pk_cli_auth::oauth::{ClientAuth, OAuthClient};
+use pk_cli_auth::oauth::{random_token, AuthorizationRequest, ClientAuth, OAuthClient, Pkce};
 use pk_cli_auth::{AuthMethod, AuthStatus};
-use pk_cli_core::transport::Transport;
+use pk_cli_core::transport::{HttpRequest, Transport};
 use pk_cli_core::{block_on, output, CliError};
 use pk_med_smart::{
     begin, decode_session, discover, register_dynamic_client, JwtSigner, LaunchRequest, Renewer,
-    RsaKey, ScopeSet, SessionStore, SmartApp, SmartSession,
+    RsaKey, ScopeSet, SessionStore, SmartApp, SmartSession, VendorQuirks,
 };
 use serde_json::{json, Value};
 
 use super::{orgs as orgs_cmd, rfc3339, transport, Ctx, BIN};
-use crate::cli::{AuthCmd, LoginArgs, LogoutArgs};
+use crate::cli::{AuthCmd, LoginArgs, LogoutArgs, ProbeArgs};
+use crate::config::Config;
 use crate::epic::{self, EpicQuirks};
 use crate::fhir::Fhir;
 use crate::orgs::{self, Org};
@@ -33,6 +34,7 @@ pub fn run(ctx: &Ctx, cmd: &AuthCmd) -> Result<(), CliError> {
         AuthCmd::Login(args) => login(ctx, args),
         AuthCmd::Status => status(ctx),
         AuthCmd::Logout(args) => logout(ctx, args),
+        AuthCmd::Probe(args) => probe(ctx, args),
     }
 }
 
@@ -56,6 +58,115 @@ fn validate_label(label: &str) -> Result<(), CliError> {
 
 /// `--org`: `sandbox` needs no directory; anything else resolves against
 /// the cached directory, downloading it when it is missing or a week old.
+/// The client id for `org` (the sandbox's or production's) and the config
+/// key that holds it.
+fn client_id_for(cfg: &Config, org: &Org) -> Result<(String, &'static str), CliError> {
+    let (client_id, key_name) = if org.is_sandbox() {
+        (cfg.sandbox_client_id.clone(), "sandbox_client_id")
+    } else {
+        (cfg.client_id.clone(), "client_id")
+    };
+    let client_id = client_id.ok_or_else(|| {
+        CliError::Usage(format!("no {key_name} is configured")).with_remedy(format!(
+            "register this household's app with Epic (docs/registration.md), then \
+             `{BIN} config set {key_name} <ID>`"
+        ))
+    })?;
+    Ok((client_id, key_name))
+}
+
+fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
+    let v = probe_org(ctx, &args.org)?;
+    output::emit(ctx.json(), "auth-probe", v, |v| {
+        let (name, id, client, redirect) = (
+            v["organization"].as_str().unwrap_or_default(),
+            v["org"].as_str().unwrap_or_default(),
+            v["client"].as_str().unwrap_or_default(),
+            v["redirect_uri"].as_str().unwrap_or_default(),
+        );
+        match v["answer"].as_str().unwrap_or_default() {
+            "known" => println!(
+                "{name} knows this app ({client}) with the redirect {redirect}: \
+                 `{BIN} auth login --org {id}` can sign in"
+            ),
+            "unknown" => println!(
+                "{name} does not know this app ({client}) yet. Epic distributes a client \
+                 id marked Ready for Production on a rolling 12-hour cycle"
+            ),
+            "refused" => println!(
+                "{name} knows this app ({client}) but refused the request with error {}. \
+                 In Epic's sandbox error 4 meant the app does not list the redirect {redirect}",
+                v["error"].as_str().unwrap_or_default()
+            ),
+            _ => println!(
+                "{name} answered HTTP {}, which {BIN} does not recognize; \
+                 `{BIN} auth login --org {id} --no-browser` prints the address to open",
+                v["status"]
+            ),
+        }
+    });
+    Ok(())
+}
+
+/// `auth probe`: what the organization's authorize endpoint answers this
+/// app's client id and redirect, from one GET with the parameters `auth
+/// login` sends. Nothing listens, no browser opens, the Keychain is not
+/// read, and the `code` a known client may be answered with is never asked
+/// for: the redirect is not followed.
+pub fn probe_org(ctx: &Ctx, query: &str) -> Result<Value, CliError> {
+    let cfg = ctx.config()?;
+    let org = resolve_org(ctx, query)?;
+    let (client_id, key_name) = client_id_for(&cfg, &org)?;
+    cfg.check_redirect()?;
+    pk_cli_core::transport::require_secure_url(&org.fhir_base)?;
+    let t = transport()?;
+    let quirks = EpicQuirks::for_client(&client_id);
+    let version = env!("CARGO_PKG_VERSION");
+    let config = block_on(discover(&t, &org.fhir_base, &quirks, BIN, version))?;
+    pk_cli_core::transport::require_secure_url(&config.authorization_endpoint)?;
+    let redirect = cfg.redirect_uri();
+    // pk-med-smart's `begin` builds this request too, but binds the
+    // listener; the parameters here are the ones it sends.
+    let scope = quirks.scopes(ScopeSet::parse(cfg.scope())).to_string();
+    let pkce = Pkce::from_verifier(random_token(32)?)?;
+    let mut request = AuthorizationRequest::new(
+        &config.authorization_endpoint,
+        &client_id,
+        &redirect,
+        &pkce,
+        random_token(16)?,
+    )
+    .scope(&scope);
+    if quirks.send_aud() {
+        request = request.param("aud", org.aud());
+    }
+    for (name, value) in quirks.authorize_params() {
+        request = request.param(name, value);
+    }
+    if quirks.send_nonce() && scope.split(' ').any(|s| s == "openid") {
+        request = request.param("nonce", random_token(32)?);
+    }
+    let resp = block_on(t.send(HttpRequest::get(request.url()?)))?;
+    let location = resp
+        .headers
+        .iter()
+        .find(|(k, _)| k == "location")
+        .map(|(_, v)| v.as_str());
+    let (answer, error) = epic::probe_answer(resp.status, location, &resp.body);
+    let mut v = json!({
+        "org": org.id,
+        "organization": org.name,
+        "client": key_name,
+        "redirect_uri": redirect,
+        "answer": answer,
+        "status": resp.status,
+    });
+    if let Some(e) = error {
+        v["error"] = json!(e);
+    }
+    Ok(v)
+}
+
 pub fn resolve_org(ctx: &Ctx, query: &str) -> Result<Org, CliError> {
     if query.trim().eq_ignore_ascii_case(orgs::SANDBOX_ID) {
         return Ok(Org::sandbox());
@@ -74,17 +185,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     }
     let cfg = ctx.config()?;
     let org = resolve_org(ctx, &args.org)?;
-    let (client_id, key_name) = if org.is_sandbox() {
-        (cfg.sandbox_client_id.clone(), "sandbox_client_id")
-    } else {
-        (cfg.client_id.clone(), "client_id")
-    };
-    let client_id = client_id.ok_or_else(|| {
-        CliError::Usage(format!("no {key_name} is configured")).with_remedy(format!(
-            "register this household's app with Epic (docs/registration.md), then \
-             `{BIN} config set {key_name} <ID>`"
-        ))
-    })?;
+    let (client_id, _) = client_id_for(&cfg, &org)?;
     cfg.check_redirect()?;
     if let Some(note) = cfg.missing_page_note(org.is_sandbox()) {
         ctx.note(note);

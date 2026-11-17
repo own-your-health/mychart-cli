@@ -95,6 +95,18 @@ pub enum AuthCmd {
     /// Remove stored sign-ins (all, or those --org/--patient select);
     /// --forget also clears the config.
     Logout(LogoutArgs),
+    /// Whether an organization knows this app's client id and redirect,
+    /// without signing in: one request to its authorize endpoint, no
+    /// browser, no Keychain (auth-probe/v1).
+    Probe(ProbeArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct ProbeArgs {
+    /// The organization: its id or name from `mychart orgs search`, or
+    /// `sandbox` for Epic's sandbox.
+    #[arg(long, value_name = "ORG")]
+    pub org: String,
 }
 
 #[derive(Args, Debug)]

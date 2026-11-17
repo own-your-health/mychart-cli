@@ -78,6 +78,7 @@ Release assets: `mychart-<target>.tar.gz` and `.sha256` for
 | `orgs refresh\|list\|search` | Epic's directory of organizations (`org-list/v1`), downloaded at most weekly into `~/.cache/mychart` |
 | `auth login --org <ORG> [--label <WHO>]` | Standalone patient launch in the browser (PKCE), then Epic's dynamic client registration so access lasts for the period chosen in MyChart |
 | `auth status` / `auth logout` | Each sign-in's state (`auth-status/v1`); remove one or all |
+| `auth probe --org <ORG>` | Whether the organization knows this app's client id and redirect, without signing in (`auth-probe/v1`) |
 | `patients list [--status]` | The patients signed in, each with `self` or `proxy` (`patient-list/v1`) |
 | `records export --patient <ID> [--since D] --ndjson` | Every resource the organization serves, documents included, as `records-stream/v1` |
 | `records export --patient <ID> -o <DIR>` | The same stream into `<DIR>/records.ndjson`, for Epic's sandbox and test servers only (`records-export/v1`); one cut short goes to `records.incomplete.ndjson` |
