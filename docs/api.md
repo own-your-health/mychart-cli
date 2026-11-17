@@ -91,7 +91,14 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   `redirect_port` is not 7468. pk-cli-auth refuses a forwarded redirect
   with more or fewer than one port, since `bind_first` could otherwise take
   a port the page does not forward to. A page hosted elsewhere must forward
-  to the configured port.
+  to the configured port. `config set` refuses the pairing too, whichever
+  key comes second, and leaves config.json as it was.
+  **A missing page.** At an organization other than the sandbox with no
+  `redirect_uri`, `auth login` prints a note naming the published page
+  before the browser opens. mychart 0.3 reads a config.json holding
+  `redirect_uri` but drops the key the next time it writes the file
+  (`config set` or `config unset`), so a downgrade and upgrade lose it; the
+  note shows it.
   mychart 0.1 had a `redirect_host` setting. 0.2 refuses `config set
   redirect_host` (exit 2), and `auth login` warns while config.json still
   holds a host other than 127.0.0.1, since an app registered with only that

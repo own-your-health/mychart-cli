@@ -100,11 +100,29 @@ impl Config {
                  {DEFAULT_REDIRECT_PORT}, but redirect_port is {port}"
             ))
             .with_remedy(format!(
-                "`{} config unset redirect_port`, or host a page that forwards to {port}",
-                crate::commands::BIN
+                "`{bin} config unset redirect_port` to use {DEFAULT_REDIRECT_PORT}, or \
+                 `{bin} config set redirect_uri <URI>` with a page of your own that \
+                 forwards to {port}",
+                bin = crate::commands::BIN
             )));
         }
         Ok(())
+    }
+
+    /// At an organization other than the sandbox with no https page set, a
+    /// note naming the published one, since Epic production requires https
+    /// redirects. It also catches a config.json that mychart 0.3 rewrote,
+    /// which drops the key it does not know.
+    pub fn missing_page_note(&self, sandbox: bool) -> Option<String> {
+        (!sandbox && self.redirect_uri.is_none()).then(|| {
+            format!(
+                "note: this sign-in's redirect is {}. Epic production organizations \
+                 require https redirects; if MyChart shows an OAuth2 error, \
+                 `{} config set redirect_uri {PUBLISHED_REDIRECT}`",
+                self.redirect_uri(),
+                crate::commands::BIN
+            )
+        })
     }
 
     /// A `redirect_host` 0.1 stored that names another host than the one
@@ -295,5 +313,16 @@ mod tests {
         c.check_redirect().unwrap();
         c.unset("redirect_uri").unwrap();
         assert_eq!(c.redirect_uri(), "http://127.0.0.1:8123/callback");
+    }
+
+    #[test]
+    fn a_production_sign_in_without_a_page_is_told_the_published_one() {
+        let mut c = Config::default();
+        let note = c.missing_page_note(false).expect("a note");
+        assert!(note.contains("http://127.0.0.1:7468/callback"), "{note}");
+        assert!(note.contains(PUBLISHED_REDIRECT), "{note}");
+        assert_eq!(c.missing_page_note(true), None, "the sandbox takes http");
+        c.set("redirect_uri", PUBLISHED_REDIRECT).unwrap();
+        assert_eq!(c.missing_page_note(false), None);
     }
 }

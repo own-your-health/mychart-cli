@@ -11,6 +11,8 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::Value;
 
+const PUBLISHED: &str = mychart::config::PUBLISHED_REDIRECT;
+
 /// A fresh scratch dir per call. The counter, not the clock, makes it
 /// unique: parallel tests read the same instant often enough on macOS.
 fn tmp() -> std::path::PathBuf {
@@ -273,12 +275,22 @@ fn config_round_trips() {
         .args(["config", "set", "redirect_port", "8123"])
         .assert()
         .success();
+    // The published page forwards to 7468 only: with another port it is
+    // refused, and the file keeps what it had.
+    let refused = mychart(&home)
+        .args(["config", "set", "redirect_uri", PUBLISHED])
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    assert!(String::from_utf8_lossy(&refused).contains("8123"));
     mychart(&home)
         .args([
             "config",
             "set",
             "redirect_uri",
-            "https://piekstra.github.io/mychart-cli/callback",
+            "https://pages.example.org/callback",
         ])
         .assert()
         .success();
@@ -292,10 +304,34 @@ fn config_round_trips() {
     let v = json_of(&out);
     assert_eq!(v["client_id"], "00000000-0000-0000-0000-000000000001");
     assert_eq!(v["redirect_port"], 8123);
-    assert_eq!(
-        v["redirect_uri"],
-        "https://piekstra.github.io/mychart-cli/callback"
-    );
+    assert_eq!(v["redirect_uri"], "https://pages.example.org/callback");
+    mychart(&home)
+        .args(["config", "unset", "redirect_uri"])
+        .assert()
+        .success();
+    // In the other order: the page at 7468, then another port.
+    mychart(&home)
+        .args(["config", "unset", "redirect_port"])
+        .assert()
+        .success();
+    mychart(&home)
+        .args(["config", "set", "redirect_uri", PUBLISHED])
+        .assert()
+        .success();
+    mychart(&home)
+        .args(["config", "set", "redirect_port", "8123"])
+        .assert()
+        .code(2);
+    let out = mychart(&home)
+        .args(["config", "show", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(v["redirect_uri"], PUBLISHED);
+    assert!(v.get("redirect_port").is_none(), "{v}");
     mychart(&home)
         .args(["config", "unset", "redirect_uri"])
         .assert()

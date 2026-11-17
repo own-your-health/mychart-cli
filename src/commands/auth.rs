@@ -86,6 +86,9 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         ))
     })?;
     cfg.check_redirect()?;
+    if let Some(note) = cfg.missing_page_note(org.is_sandbox()) {
+        ctx.note(note);
+    }
     if let Some(host) = cfg.stale_redirect_host() {
         ctx.note(format!(
             "warning: config.json sets redirect_host `{host}`, which mychart 0.2 does not use: \
