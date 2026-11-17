@@ -223,7 +223,10 @@ own sign-in and a child's through proxy access move together; rows from
 two logins are refused (exit 2, naming them) until `--org` or `--patient`
 picks one, and the rows not moved stay in `contexts.json` for the next
 profile. It is one-way: mychart 0.4 finds neither the moved items nor
-their rows. mychart 0.1 stored its own
+their rows. `auth logout` removes sign-ins and never a profile
+(`auth-logout/v1` `profiles_kept` is always true); `--forget` also clears
+the settings other than profiles (`settings_cleared`, which 0.4 called
+`config_cleared`, kept under that name too through 0.5). mychart 0.1 stored its own
 shape under the same account. 0.2 does not read it: `auth status` lists it
 with `status.unreadable`, any command for that patient exits 3 with the
 `auth login` command that replaces it, and `auth logout` deletes it unread.

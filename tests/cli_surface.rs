@@ -203,7 +203,18 @@ fn nothing_signed_in_reads_as_such() {
             "{args:?}"
         );
     }
-    as_acct1(&home).args(["auth", "logout"]).assert().success();
+    let out = as_acct1(&home)
+        .args(["auth", "logout", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(
+        (&v["settings_cleared"], &v["profiles_kept"]),
+        (&Value::Bool(false), &Value::Bool(true))
+    );
 }
 
 #[test]

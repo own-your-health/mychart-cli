@@ -607,13 +607,14 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
             ..Config::default()
         })?;
     }
+    // A logout never removes a profile, with `--forget` or without.
     // `config_cleared` is 0.4's name for `settings_cleared`, kept through
-    // 0.5: since 0.5 the profiles stay (`profiles_kept`).
+    // 0.5.
     let payload = json!({
         "profile": profile.as_str(),
         "removed": removed,
         "settings_cleared": args.forget,
-        "profiles_kept": args.forget,
+        "profiles_kept": true,
         "config_cleared": args.forget,
     });
     output::emit(ctx.json(), "auth-logout", payload, |p| {
