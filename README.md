@@ -56,6 +56,7 @@ Each household registers its own free patient app with Epic and gives
 ```sh
 mychart config set sandbox_client_id <Non-Production Client ID>
 mychart config set client_id <Client ID>
+mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback
 ```
 
 ## Install
@@ -82,7 +83,7 @@ Release assets: `mychart-<target>.tar.gz` and `.sha256` for
 | `records export --patient <ID> -o <DIR>` | The same stream into `<DIR>/records.ndjson`, for Epic's sandbox and test servers only (`records-export/v1`); one cut short goes to `records.incomplete.ndjson` |
 | `documents list\|download` | Notes, reports and scans (`documents/v1`) |
 | `api GET <path>` | One FHIR read as the signed-in patient |
-| `config path\|show\|set\|unset` | Client ids, redirect port, scope, directory URL |
+| `config path\|show\|set\|unset` | Client ids, redirect port and https redirect page, scope, directory URL |
 | `info`, `completions`, `self-update` | Family standard |
 
 Every command takes `--json`. Exit codes: 0 ok, 2 usage, 3 sign-in needed,
@@ -94,7 +95,13 @@ Every command takes `--json`. Exit codes: 0 ok, 2 usage, 3 sign-in needed,
    opens its MyChart sign-in page. A parent with proxy access picks the
    child there; each person is one sign-in.
 2. MyChart redirects to `http://127.0.0.1:7468/callback`, where `mychart`
-   listens.
+   listens. Health systems in production take only an https redirect, so
+   with `redirect_uri` set MyChart redirects to
+   `https://piekstra.github.io/mychart-cli/callback` instead, a page in
+   this repository that passes the answer on to the same address. Its
+   [Terms of Use](https://piekstra.github.io/mychart-cli/terms) and
+   [privacy](https://piekstra.github.io/mychart-cli/privacy) pages sit
+   beside it.
 3. `mychart` exchanges the code (PKCE), registers a key made on this
    computer with the organization (Epic's dynamic client registration), and
    from then on gets access tokens by signing with that key, until the

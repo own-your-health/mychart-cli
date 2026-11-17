@@ -9,9 +9,15 @@ use serde::{Deserialize, Serialize};
 
 /// The loopback port the sign-in's redirect comes back to. Epic matches the
 /// registered redirect URI, so the port is fixed (and configurable) rather
-/// than picked at random per sign-in. The redirect URI is
-/// `http://127.0.0.1:<port>/callback` (RFC 8252 §7.3, `pk_cli_auth`).
+/// than picked at random per sign-in. The listener is
+/// `http://127.0.0.1:<port>/callback` (RFC 8252 §7.3, `pk_cli_auth`), and
+/// the redirect too unless `redirect_uri` names an https page that forwards
+/// to it.
 pub const DEFAULT_REDIRECT_PORT: u16 = 7468;
+
+/// The forwarding page this repository publishes (`site/callback.html`),
+/// which sends the answer to `DEFAULT_REDIRECT_PORT` and no other.
+pub const PUBLISHED_REDIRECT: &str = "https://piekstra.github.io/mychart-cli/callback";
 
 /// The scopes a sign-in asks for, as Epic's tutorial gives them for a
 /// standalone launch: Epic adds the resource scopes of the APIs the app was
@@ -20,8 +26,8 @@ pub const DEFAULT_REDIRECT_PORT: u16 = 7468;
 /// the hour.
 pub const DEFAULT_SCOPE: &str = "openid fhirUser";
 
-pub const KEYS: &str =
-    "client_id, sandbox_client_id, redirect_port, scope, directory_url, dynamic_registration";
+pub const KEYS: &str = "client_id, sandbox_client_id, redirect_port, redirect_uri, scope, \
+     directory_url, dynamic_registration";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -33,6 +39,12 @@ pub struct Config {
     pub sandbox_client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_port: Option<u16>,
+    /// The https page registered as the app's redirect, which passes the
+    /// answer on to the listener on `redirect_port`: Epic's production
+    /// organizations take only https redirects (docs/api.md). Unset, the
+    /// redirect is the listener's own address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
     /// Where `orgs refresh` downloads Epic's directory from.
@@ -62,9 +74,55 @@ impl Config {
         self.dynamic_registration.unwrap_or(true)
     }
 
-    /// The redirect URI every sign-in sends (RFC 8252 §7.3).
-    pub fn redirect_uri(&self) -> String {
+    /// Where the sign-in's answer arrives (RFC 8252 §7.3).
+    pub fn listener_uri(&self) -> String {
         format!("http://127.0.0.1:{}/callback", self.redirect_port())
+    }
+
+    /// The redirect URI every sign-in sends: the forwarding page when one is
+    /// set, otherwise the listener.
+    pub fn redirect_uri(&self) -> String {
+        self.redirect_uri
+            .clone()
+            .unwrap_or_else(|| self.listener_uri())
+    }
+
+    /// Refuse a sign-in the forwarding page could not finish: the published
+    /// page forwards to the default port only, so with another
+    /// `redirect_port` the answer would go to a port nothing of this sign-in
+    /// listens on. A page hosted elsewhere is its owner's to match.
+    pub fn check_redirect(&self) -> Result<(), CliError> {
+        let port = self.redirect_port();
+        if self.redirect_uri.as_deref() == Some(PUBLISHED_REDIRECT) && port != DEFAULT_REDIRECT_PORT
+        {
+            return Err(CliError::Usage(format!(
+                "the page at {PUBLISHED_REDIRECT} forwards the sign-in to port \
+                 {DEFAULT_REDIRECT_PORT}, but redirect_port is {port}"
+            ))
+            .with_remedy(format!(
+                "`{bin} config unset redirect_port` to use {DEFAULT_REDIRECT_PORT}, or \
+                 `{bin} config set redirect_uri <URI>` with a page of your own that \
+                 forwards to {port}",
+                bin = crate::commands::BIN
+            )));
+        }
+        Ok(())
+    }
+
+    /// At an organization other than the sandbox with no https page set, a
+    /// note naming the published one, since Epic production requires https
+    /// redirects. It also catches a config.json that mychart 0.3 rewrote,
+    /// which drops the key it does not know.
+    pub fn missing_page_note(&self, sandbox: bool) -> Option<String> {
+        (!sandbox && self.redirect_uri.is_none()).then(|| {
+            format!(
+                "note: this sign-in's redirect is {}. Epic production organizations \
+                 require https redirects; if MyChart shows an OAuth2 error, \
+                 `{} config set redirect_uri {PUBLISHED_REDIRECT}`",
+                self.redirect_uri(),
+                crate::commands::BIN
+            )
+        })
     }
 
     /// A `redirect_host` 0.1 stored that names another host than the one
@@ -83,6 +141,7 @@ impl Config {
                 })?;
                 self.redirect_port = Some(port);
             }
+            "redirect_uri" => self.redirect_uri = Some(forwarding_page(value)?),
             "scope" => self.scope = Some(value.trim().to_string()),
             "directory_url" => {
                 pk_cli_core::transport::require_secure_url(value)?;
@@ -90,8 +149,8 @@ impl Config {
             }
             "redirect_host" => {
                 return Err(CliError::Usage(format!(
-                    "redirect_host was removed in mychart 0.2: the redirect is always {}",
-                    self.redirect_uri()
+                    "redirect_host was removed in mychart 0.2: the listener is always {}",
+                    self.listener_uri()
                 ))
                 .with_remedy(
                     "register that URI on the app at fhir.epic.com (docs/registration.md); \
@@ -115,6 +174,7 @@ impl Config {
             "client_id" => self.client_id = None,
             "sandbox_client_id" => self.sandbox_client_id = None,
             "redirect_port" => self.redirect_port = None,
+            "redirect_uri" => self.redirect_uri = None,
             "scope" => self.scope = None,
             "directory_url" => self.directory_url = None,
             "dynamic_registration" => self.dynamic_registration = None,
@@ -123,6 +183,34 @@ impl Config {
         }
         Ok(())
     }
+}
+
+/// A page that forwards the sign-in's answer: `https`, with a host and no
+/// user, no fragment (RFC 6749 §3.1.2), as Epic registers it. pk-cli-auth
+/// checks the same at sign-in; checking here too fails `config set` rather
+/// than the next sign-in.
+fn forwarding_page(value: &str) -> Result<String, CliError> {
+    let v = value.trim();
+    let authority = v
+        .split_once("://")
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("https"))
+        .map(|(_, rest)| rest.split(['/', '?', '#', '\\']).next().unwrap_or_default());
+    let ok = authority.is_some_and(|a| !a.is_empty() && !a.contains('@'))
+        && !v.contains('#')
+        && v.len() <= 2000
+        && v.bytes().all(|b| b.is_ascii_graphic());
+    if !ok {
+        return Err(CliError::Usage(
+            "redirect_uri is the https page registered on the app that forwards the sign-in \
+             to this computer: https, with a host, no user, no fragment and no spaces"
+                .into(),
+        )
+        .with_remedy(format!(
+            "`{BIN} config unset redirect_uri` sends the listener's own address instead",
+            BIN = crate::commands::BIN
+        )));
+    }
+    Ok(v.to_string())
 }
 
 fn unknown(key: &str) -> CliError {
@@ -182,5 +270,59 @@ mod tests {
         c.unset("redirect_port").unwrap();
         assert_eq!(c.redirect_port(), DEFAULT_REDIRECT_PORT);
         assert_eq!(c.set("nope", "x").unwrap_err().exit_code(), 2);
+    }
+
+    #[test]
+    fn redirect_uri_is_an_https_page_and_falls_back_to_the_listener() {
+        let mut c = Config::default();
+        assert_eq!(c.redirect_uri(), "http://127.0.0.1:7468/callback");
+        c.set("redirect_uri", &format!(" {PUBLISHED_REDIRECT} "))
+            .unwrap();
+        assert_eq!(c.redirect_uri(), PUBLISHED_REDIRECT);
+        assert_eq!(c.listener_uri(), "http://127.0.0.1:7468/callback");
+        c.check_redirect().unwrap();
+        for bad in [
+            "http://pages.example.test/callback",
+            "http://127.0.0.1:7468/callback",
+            "https:///callback",
+            // A user in the authority (a dummy domain, for
+            // tests/no_personal_data.rs).
+            "https://someone@pages.example.org/callback",
+            "https://@pages.example.org/callback",
+            "https://pages.example.test/callback#top",
+            "https://pages.example.test/call back",
+            "pages.example.test/callback",
+        ] {
+            let e = c.set("redirect_uri", bad).unwrap_err();
+            assert_eq!(e.exit_code(), 2, "{bad}");
+            assert!(!e.to_string().contains("pages.example"), "{e}");
+        }
+        assert_eq!(
+            c.redirect_uri(),
+            PUBLISHED_REDIRECT,
+            "a refused value changes nothing"
+        );
+        // The published page forwards to the default port only.
+        c.set("redirect_port", "8123").unwrap();
+        let e = c.check_redirect().unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+        assert!(e.to_string().contains("8123"), "{e}");
+        // A page elsewhere is its owner's to match.
+        c.set("redirect_uri", "https://pages.example.test/callback")
+            .unwrap();
+        c.check_redirect().unwrap();
+        c.unset("redirect_uri").unwrap();
+        assert_eq!(c.redirect_uri(), "http://127.0.0.1:8123/callback");
+    }
+
+    #[test]
+    fn a_production_sign_in_without_a_page_is_told_the_published_one() {
+        let mut c = Config::default();
+        let note = c.missing_page_note(false).expect("a note");
+        assert!(note.contains("http://127.0.0.1:7468/callback"), "{note}");
+        assert!(note.contains(PUBLISHED_REDIRECT), "{note}");
+        assert_eq!(c.missing_page_note(true), None, "the sandbox takes http");
+        c.set("redirect_uri", PUBLISHED_REDIRECT).unwrap();
+        assert_eq!(c.missing_page_note(false), None);
     }
 }

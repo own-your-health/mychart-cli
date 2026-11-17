@@ -45,28 +45,76 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   client authentication type "none."" (tutorial). So no JWK Set URL.
 - **Redirect URIs**: "An https protocol is required for use in a production
   environment, but http protocol-based redirect_uris are allowed for
-  development and testing" (oauth2), and "apps should not include
-  localhost/loopback URIs in this list. An exception is for Native
-  applications which are designed to use localhost for the redirect"
-  (oauth2, "Limit Use of Localhost URIs"). mychart is such a native app. Its
-  redirect is `http://127.0.0.1:7468/callback`: the loopback listener
-  (cli-common's `pk-cli-auth`) binds and names only the IP literal (RFC
-  8252 §7.3). [registration.md](registration.md) also lists the
-  `http://localhost:7468/callback` spelling, which mychart does not send.
-  Epic compares redirect URIs exactly, so the port is fixed (`mychart
-  config set redirect_port`), never chosen at random. mychart 0.1 had a
-  `redirect_host` setting; 0.2 refuses `config set redirect_host` (exit 2),
-  and `auth login` warns while config.json still holds a host other than
-  127.0.0.1, since an app registered with only that host's URI does not
-  match.
-  **Not settled by the docs:** whether a production organization accepts an
-  http loopback URI. Redirect URIs stay editable after Ready for Production
-  ("With the exception of adding redirect URIs and modifying your JWK Set
-  URLs, all technical changes will require you to build a new app"), so an
-  https page that forwards `code` and `state` to the loopback can be added
-  later if one does not.
-- **After Ready for Production** nothing else changes, and an app "cannot be
-  deactivated" once deployed (request process).
+  development and testing" (oauth2). Under "Limit Use of Localhost URIs":
+  "apps should not include localhost/loopback URIs in this list. An
+  exception is for Native applications which are designed to use localhost
+  for the redirect", and "If your developers wish to use localhost URIs for
+  testing in our sandboxes, we recommend creating a second test application
+  that will never be activated in customer environments". For native apps
+  "Epic recommends the use of Universal Links/App Links in lieu of custom
+  redirect URL protocol schemes" (oauth2, "Considerations for Native Apps").
+  The app form enforces the https rule: **Save & Ready for Production**
+  stays disabled until one Endpoint URI is https ("Only secured endpoint
+  URIs can be used in production."; app 64953, 2026-11-16). The docs do not
+  say whether a production organization refuses an http loopback
+  `redirect_uri` at authorize time, so mychart does not rely on one there.
+  **What mychart sends.** By default the listener's own address,
+  `http://127.0.0.1:7468/callback`: the loopback listener (cli-common's
+  `pk-cli-auth`) binds and names only the IP literal (RFC 8252 §7.3). With
+  `mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback`
+  (mychart 0.4), it sends that page instead, for every organization.
+  [registration.md](registration.md) registers all three URIs: the two http
+  loopback spellings serve the sandbox, and the https page serves
+  production. Epic compares redirect URIs exactly ("URIs are case
+  sensitive", "URIs must be exact matches"), so the port is fixed (`mychart
+  config set redirect_port`), never chosen at random.
+  **The forwarding page.** `site/callback.html`, published from this
+  repository's `main` by `.github/workflows/pages.yml`, runs
+  `location.replace("http://127.0.0.1:7468/callback" + location.search)`.
+  The query (`code`, `state`, `iss`, or `error`) reaches the listener
+  unchanged, and the listener checks `state` and `iss` as for a direct
+  redirect. The exchange names the page (pk-cli-auth v0.32's
+  `AuthorizationCodeFlow::redirect_uri`, pk-med-smart v0.5's
+  `SmartApp::redirect_uri`). The page sends no referrer, loads nothing, and
+  runs only its own hashed script (`tests/site.rs`). Chromium applies Local
+  Network Access only to iframe navigations ("Chromium only applies LNA
+  restrictions to iframe navigations currently", WICG Local Network Access),
+  so this top-level navigation is not gated. Headless Chromium 149 followed
+  it from the live page to 127.0.0.1 with no prompt (2026-11-16).
+  **What GitHub sees.** GitHub serves the page, so its logs can hold the
+  one-time `code`, `state` and `iss` of each sign-in, never a token or a
+  record. PKCE S256 makes a logged code useless: the verifier never leaves
+  this computer, and the code is redeemed once. Only this repository's
+  `main` decides what the page does.
+  **The page knows one port.** It forwards to 7468, so `auth login` refuses
+  (exit 2, before the browser opens) when `redirect_uri` is this page and
+  `redirect_port` is not 7468. pk-cli-auth refuses a forwarded redirect
+  with more or fewer than one port, since `bind_first` could otherwise take
+  a port the page does not forward to. A page hosted elsewhere must forward
+  to the configured port. `config set` refuses the pairing too, whichever
+  key comes second, and leaves config.json as it was.
+  **A missing page.** At an organization other than the sandbox with no
+  `redirect_uri`, `auth login` prints a note naming the published page
+  before the browser opens. mychart 0.3 reads a config.json holding
+  `redirect_uri` but drops the key the next time it writes the file
+  (`config set` or `config unset`), so a downgrade and upgrade lose it; the
+  note shows it.
+  mychart 0.1 had a `redirect_host` setting. 0.2 refuses `config set
+  redirect_host` (exit 2), and `auth login` warns while config.json still
+  holds a host other than 127.0.0.1, since an app registered with only that
+  host's URI does not match.
+- **After Ready for Production** "Neither you nor Epic can make updates to
+  an app once it has been marked Ready for Production. With the exception
+  of adding redirect URIs and modifying your JWK Set URLs, all technical
+  changes will require you to build a new app" (request process), and an app
+  "cannot be deactivated" once deployed. A patient-facing app needs a Terms
+  and Conditions URL before it can be marked ready: the form's validator
+  requires it ("Enter a secure URL where users can review your Terms and
+  Conditions prior to authorizing access to their data.", 250 characters at
+  most). The Additional Disclosure Info URL is optional ("Optional secure
+  URL to share additional information about how you manage user data.").
+  Neither changes after Ready for Production. This repository publishes both
+  pages, at `/terms` and `/privacy` beside the forwarding page.
 
 ## 2. Refresh tokens, dynamic client registration, lifetimes
 
@@ -445,7 +493,13 @@ range requests, so a failed download starts over.
   how long a new app takes to reach it. The household's app was saved Ready
   for Sandbox at about 13:55 ET on 2026-11-16. A check every 30 minutes found
   it unknown at 16:44 and known at 17:14, so it took about 2 h 50 min to
-  3 h 20 min. Developers report 12 to 24 hours. Until then its authorize page answers
+  3 h 20 min. A redirect URI added to the app later (the https page, saved
+  at 21:19 ET the same day) was accepted by 21:51, 32 minutes on. An
+  unregistered `redirect_uri` shows in the authorize answer itself: Epic's
+  302 to `/mychart-fhir/Authentication/OAuth/Start` carries `error=4` in
+  its query, where a registered one carries no `error`. So one GET of the
+  authorize URL, with no sign-in, says whether a URI has synced.
+  Developers report 12 to 24 hours. Until then its authorize page answers
   "OAuth2 Error … Something went wrong trying to authorize the client",
   which is also its answer to a production client id. Its test patients (`fhircamila`, `fhirderrick`,
   `fhirdesiree`, password `epicepic1`) are synthetic and published by Epic.

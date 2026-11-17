@@ -147,8 +147,9 @@ pub enum ConfigCmd {
     Path,
     /// Show the effective configuration.
     Show,
-    /// Set a key: client_id, sandbox_client_id, redirect_port, scope,
-    /// directory_url, dynamic_registration.
+    /// Set a key: client_id, sandbox_client_id, redirect_port, redirect_uri
+    /// (the https page that forwards a sign-in here), scope, directory_url,
+    /// dynamic_registration.
     Set { key: String, value: String },
     /// Remove a key.
     Unset { key: String },

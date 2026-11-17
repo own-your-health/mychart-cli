@@ -49,7 +49,7 @@ save.
 | Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
 | Incoming APIs | Every API in the [list below](#apis-to-select), moved from **Available** to **Selected** with `>>`; the **Search available service list** box filters the list. |
 | Outgoing APIs | None. |
-| Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row). Choose `http://` in the row's scheme list and enter the rest without a scheme: `127.0.0.1:7468/callback`, and in a second row `localhost:7468/callback`. Epic compares them character for character. |
+| Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row), the scheme from the row's scheme list and the rest without a scheme. Row 1: `http://` and `127.0.0.1:7468/callback`. Row 2: `http://` and `localhost:7468/callback`. Row 3: `https://` and `piekstra.github.io/mychart-cli/callback`, the page that forwards a sign-in to this computer ([api.md](api.md), section 1): production takes only https, and **Save & Ready for Production** stays disabled until an https row exists. Epic compares them character for character. |
 | Can Register Dynamic Clients ("Will this app register dynamic clients?") | **Checked**. mychart has no server to keep a secret; each install registers its own key instead. |
 | "How will dynamic clients request an access token?" | **JWT Bearer Grant Type** (the default). |
 | Is Confidential Client | **Unchecked**. Its extra settings (Requires Persistent Access, Uses Rolling Refresh Tokens, Can Have Indefinite Access, JWK Set URLs) appear only when it is checked. |
@@ -69,7 +69,9 @@ bar (Created, Test, Ready).
 | Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the household's own records, only reads, keeps them on the household's computer, signs in through the system browser, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
 | Intended Purposes | **Individuals' Access to their EHI** only. |
 | Intended Users | **Individual/Caregiver** only. |
-| Thumbnail, Screenshots, Terms and Conditions URL, Additional Disclosure Info URL | Leave empty. |
+| Terms and Conditions URL | Required for **Save & Ready for Production** on a patient-facing app. Choose `https://` and enter `piekstra.github.io/mychart-cli/terms`, the Terms of Use this repository publishes, or a page of your own. It cannot change after Ready for Production. |
+| Additional Disclosure Info URL | Optional. Choose `https://` and enter `piekstra.github.io/mychart-cli/privacy`, or a page of your own. It cannot change after Ready for Production. |
+| Thumbnail, Screenshots | Leave empty. |
 | Request Connection Hub Listing | Not used. |
 | "I accept the terms of use of open.epic." | Tick it before each save; it shows unticked again after the page reloads. |
 
@@ -157,9 +159,14 @@ production "cannot be deactivated", only deactivated by each organization.
 
 ```sh
 mychart config set client_id <Client ID>
+mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback
 mychart orgs search "<your health system>"
 mychart auth login --org <ID> --label <WHO>
 ```
+
+`redirect_uri` makes every sign-in send the https page, which production
+needs; the sandbox accepts it too once Epic has synced the app.
+`mychart config unset redirect_uri` goes back to the loopback address.
 
 A sign-in at an organization within 12 hours of marking the app ready can
 fail with an unknown-client error; wait and try again.

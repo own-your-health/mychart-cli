@@ -33,6 +33,10 @@ pub fn run(ctx: &Ctx, cmd: &ConfigCmd) -> Result<(), CliError> {
         ConfigCmd::Set { key, value } => {
             let mut cfg: Config = ctx.config()?;
             cfg.set(key, value)?;
+            // A port the published page does not forward to is refused
+            // here, whichever of the two keys came second, and the file
+            // keeps its old value.
+            cfg.check_redirect()?;
             ctx.store.save(&cfg)?;
             ctx.note(format!("{key} set"));
             Ok(())

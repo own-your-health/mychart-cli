@@ -14,8 +14,15 @@ on this repository. Please do not open a public issue.
   records until the access period ends; `mychart auth logout` deletes it,
   and MyChart's "Manage My Linked Apps and Devices" revokes it at the
   organization.
-- **The sign-in redirect** goes to `127.0.0.1` only, and its `state` and
-  PKCE verifier are checked, so a code another program catches is useless.
+- **The sign-in redirect** ends at `127.0.0.1`, and its `state` and PKCE
+  verifier are checked, so a code another program catches is useless. With
+  `redirect_uri` set, which Epic production needs, it passes through
+  `https://piekstra.github.io/mychart-cli/callback` first. That page, from
+  this repository's `main`, forwards the query unchanged to the listener.
+  GitHub's logs can therefore hold each sign-in's one-time `code`, `state`
+  and `iss`, never a token or a record. PKCE S256 keeps a logged code
+  useless, since the verifier never leaves the computer and the code is
+  redeemed once.
   A request to the redirect without this sign-in's `state` (an old tab, a
   web page, another program) is answered and ignored; it cannot end the
   sign-in. One that carries an OAuth error and no `state` may be the
