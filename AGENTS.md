@@ -22,6 +22,7 @@ the `pk-cli-*` crates from [cli-common](https://github.com/piekstra/cli-common).
 | `src/export.rs` | Epic's search plan, the export order, and the types `--since` leaves unbounded |
 | `tests/support/mock_epic.rs` | a mock Epic organization on 127.0.0.1 (also `make mock`) |
 | `docs/api.md` | Epic's behaviour and traps, quoted; read before changing auth or export |
+| `site/` | GitHub Pages (`.github/workflows/pages.yml`): `callback.html`, the https redirect registered for production, which passes the sign-in's answer on to `http://127.0.0.1:7468/callback`; `tests/site.rs` checks its policy and target |
 
 medical-common v0.4.9 (pinned with cli-common v0.31.1, the tag it builds
 on) owns the protocol and the stream:
@@ -104,6 +105,9 @@ Medical records are the most sensitive data a household has.
 - `tests/cli_surface.rs`: the binary's help, exit codes, JSON errors, `info`,
   completions, the directory against the mock.
 - `tests/fixture_shapes.rs`, `tests/no_personal_data.rs`.
+- `tests/site.rs`: the published pages: the callback page's Content Security Policy
+  hashes its own script and style, it sends no referrer and loads nothing, and it
+  forwards to the default port.
 
 ## Definition of done
 
