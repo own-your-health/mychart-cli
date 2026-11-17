@@ -237,7 +237,9 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         .map(|page| format!("\nThe browser comes back through {page} to this computer."))
         .unwrap_or_default();
     eprintln!(
-        "Sign in to {} in the browser{}. If a list of people appears, pick the one to link.{through}\n\
+        "Sign in to {} in the browser{}. If a list of people appears, pick the one to link. \
+         When MyChart asks how long to share, choose the longest period: mychart renews \
+         access on its own until it ends.{through}\n\
          If no browser opened, visit:\n  {url}",
         org.name,
         if opened { " window that opened" } else { "" }
