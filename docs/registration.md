@@ -130,11 +130,9 @@ mychart config set sandbox_client_id <Non-Production Client ID>
 Epic does not say how long a new app takes to reach its sandbox. The
 household's app reached it about 2 h 50 min to 3 h 20 min after **Save &
 Ready for Sandbox** (2026-11-16); developers report 12 to 24 hours. To check
-without signing in, run `mychart auth login --org sandbox --no-browser`,
-open the URL it prints, and end the command with Ctrl-C. Epic's "OAuth2
-Error" page ("Something went wrong trying to authorize the client") means
-the sandbox does not know the client yet; a MyChart sign-in page means it
-does. Then:
+without signing in, run `mychart auth probe --org sandbox`. It answers
+`known`, `unknown` (the sandbox does not know the client yet), or `refused`
+with Epic's error code (`4`: the app does not list the redirect). Then:
 
 ```sh
 mychart auth login --org sandbox --label test
@@ -172,10 +170,9 @@ A sign-in at an organization within 12 hours of marking the app ready can
 fail with an unknown-client error; wait and try again.
 
 To check that the client id reached an organization without signing in,
-open the authorize URL that `mychart auth login --org <ID> --no-browser`
-prints and close it at the next page: the organization's MyChart sign-in
-page means it knows the app, and an OAuth error page means it does not. If
-it still does not 24 hours after Ready for Production, the claims APIs
+run `mychart auth probe --org <ID>`: `known` means a sign-in can start,
+`unknown` that the organization does not know the client id yet. If it
+still answers `unknown` 24 hours after Ready for Production, the claims APIs
 (above) are the first suspect: a new app without them is the remedy, since
 an app's APIs cannot change after production.
 

@@ -241,6 +241,41 @@ fn a_sign_in_through_an_https_page_names_the_page_and_hears_the_answer_on_the_po
     assert_eq!(mock.get(|st| st.registrations), 1);
 }
 
+/// `auth probe` reads Epic's three answers from the authorize endpoint
+/// alone: no browser, no listener, no Keychain, and no code exchanged.
+#[test]
+fn a_probe_tells_a_known_client_from_an_unknown_one_and_a_refused_redirect() {
+    let mock = MockEpic::start();
+    mock.set(|st| st.redirect_page = Some("https://pages.example.org/callback".into()));
+    let probe = |configure: &dyn Fn(&mut Config)| {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path(), &mock, configure);
+        ctx.browser = Box::new(|_: &str| panic!("no browser may open"));
+        let v = commands::auth::probe_org(&ctx, ORG_ID).unwrap();
+        assert!(ctx.contexts().unwrap().is_empty(), "nothing stored");
+        v
+    };
+    let known = probe(&|_| {});
+    assert_eq!(known["answer"], "known", "{known}");
+    assert_eq!(known["client_key"], "client_id");
+    assert_eq!(known["status"], 302);
+    assert!(known.get("error").is_none(), "{known}");
+    let page = probe(&|c| c.redirect_uri = Some("https://pages.example.org/callback".into()));
+    assert_eq!(page["answer"], "known", "{page}");
+    assert_eq!(page["redirect_uri"], "https://pages.example.org/callback");
+
+    let unknown = probe(&|c| c.client_id = Some("00000000-0000-0000-0000-000000000009".into()));
+    assert_eq!(unknown["answer"], "unknown", "{unknown}");
+    assert_eq!(unknown["status"], 200);
+
+    let refused = probe(&|c| c.redirect_uri = Some("https://pages.example.org/elsewhere".into()));
+    assert_eq!(refused["answer"], "refused", "{refused}");
+    assert_eq!(refused["error"], "4");
+
+    assert_eq!(mock.get(|st| st.registrations), 0);
+    assert!(mock.get(|st| st.hits.is_empty()), "no FHIR read");
+}
+
 /// The page this repository publishes forwards to 7468 only: with another
 /// port the sign-in is refused before anything is sent or opened.
 #[test]

@@ -25,6 +25,57 @@ impl EpicQuirks {
     }
 }
 
+/// What an organization's authorize endpoint answered this app's client id
+/// and redirect, with nobody signing in (`auth probe`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProbeAnswer {
+    /// A redirect without `error`: on to MyChart's sign-in.
+    Known,
+    /// Epic's "OAuth2 Error" page: the organization does not know the
+    /// client id.
+    Unknown,
+    /// A redirect carrying `error`: the client id is known and this request
+    /// was refused.
+    Refused,
+    /// Anything else.
+    Unrecognized,
+}
+
+/// Epic's answers as seen on 2026-11-16 (docs/api.md): an unknown client id
+/// gets a 200 "OAuth2 Error" page, at the sandbox and in production alike; a
+/// known one a 302 to MyChart's sign-in; a known one with a `redirect_uri`
+/// the app does not list the same 302 with `error=4` in its query. The
+/// error is cut to 40 characters of `A-Z a-z 0-9 - . _`, since it comes from
+/// the server.
+pub fn probe_answer(
+    status: u16,
+    location: Option<&str>,
+    body: &str,
+) -> (ProbeAnswer, Option<String>) {
+    if (300..400).contains(&status) {
+        let base = reqwest::Url::parse("https://authorize.invalid/").expect("a base URL");
+        let Some(url) = location.and_then(|l| base.join(l).ok()) else {
+            return (ProbeAnswer::Unrecognized, None);
+        };
+        return match url.query_pairs().find(|(k, _)| k == "error") {
+            Some((_, e)) => {
+                let e: String = e
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || "-._".contains(*c))
+                    .take(40)
+                    .collect();
+                (ProbeAnswer::Refused, Some(e))
+            }
+            None => (ProbeAnswer::Known, None),
+        };
+    }
+    if status == 200 && body.contains("OAuth2 Error") {
+        return (ProbeAnswer::Unknown, None);
+    }
+    (ProbeAnswer::Unrecognized, None)
+}
+
 impl VendorQuirks for EpicQuirks {
     fn discovery_headers(&self) -> Vec<(String, String)> {
         self.client_id
@@ -66,6 +117,38 @@ pub fn relationship(fhir_user: Option<&str>, patient: &str) -> Option<&'static s
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_probe_reads_epics_three_answers() {
+        use super::{probe_answer, ProbeAnswer::*};
+        let unknown = "<html><head><title>OAuth2 Error</title></head><body>\
+                       Something went wrong trying to authorize the client.</body></html>";
+        assert_eq!(probe_answer(200, None, unknown), (Unknown, None));
+        let start = "/mychart-fhir/Authentication/OAuth/Start?response_type=code&client_id=x";
+        assert_eq!(probe_answer(302, Some(start), ""), (Known, None));
+        assert_eq!(
+            probe_answer(302, Some(&format!("{start}&error=4")), ""),
+            (Refused, Some("4".into()))
+        );
+        assert_eq!(
+            probe_answer(302, Some("https://pages.example.org/cb?code=c&state=s"), ""),
+            (Known, None)
+        );
+        assert_eq!(
+            probe_answer(302, Some("/x?error=%0Abad%20%3Cscript%3E"), ""),
+            (Refused, Some("badscript".into()))
+        );
+        assert_eq!(probe_answer(302, None, ""), (Unrecognized, None));
+        assert_eq!(
+            probe_answer(200, None, "<title>MyChart</title>"),
+            (Unrecognized, None)
+        );
+        assert_eq!(
+            probe_answer(500, None, "OAuth2 Error"),
+            (Unrecognized, None)
+        );
+    }
+
     use super::*;
 
     #[test]

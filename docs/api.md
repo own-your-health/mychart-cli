@@ -501,7 +501,25 @@ range requests, so a failed download starts over.
   authorize URL, with no sign-in, says whether a URI has synced.
   Developers report 12 to 24 hours. Until then its authorize page answers
   "OAuth2 Error … Something went wrong trying to authorize the client",
-  which is also its answer to a production client id. Its test patients (`fhircamila`, `fhirderrick`,
+  which is also its answer to a production client id.
+  **`mychart auth probe --org <ORG>`** reads these answers. It sends the
+  request `auth login` would send (client id, redirect, scope, `aud`,
+  PKCE, nonce) with one GET, follows no redirect, and opens nothing. The
+  answers seen on 2026-11-16 were the same at the sandbox and in production:
+
+  | Answer | Epic's response | `answer` |
+  |---|---|---|
+  | Client id unknown to the organization | 200, "OAuth2 Error" page (906 bytes at a production organization two minutes after Ready for Production, the same as for an all-zero client id) | `unknown` |
+  | Client known, `redirect_uri` not on the app | 302 to `/mychart-fhir/Authentication/OAuth/Start` with `error=4` | `refused`, `error` `4` |
+  | Client and redirect known | 302 to `/mychart-fhir/Authentication/OAuth/Start`, no `error` | `known` |
+
+  Anything else is `unrecognized`. The `auth-probe/v1` document always
+  carries `org`, `organization`, `client_key` (the config key whose client
+  id was sent: `client_id`, or `sandbox_client_id` for the sandbox),
+  `redirect_uri`, `answer` and `status` (the HTTP status); `error` only with
+  `refused`. A known client's
+  redirect leads to MyChart's sign-in, which the probe does not follow, so
+  no `code` is ever issued to it. Its test patients (`fhircamila`, `fhirderrick`,
   `fhirdesiree`, password `epicepic1`) are synthetic and published by Epic.
 
 ## Kaiser Permanente
@@ -566,7 +584,5 @@ those bases authorize at 226 and 326. mychart uses Brands.
   DICOM download.
 - **Distribution is unverified.** Epic distributes a qualifying app's client
   id unless an organization "has disabled auto-download functionality";
-  Kaiser does not say whether it has. Loading one region's authorize URL
-  with the production client id answers it without signing in: Kaiser's
-  sign-in page means the client is known, an OAuth error page means it is
-  not.
+  Kaiser does not say whether it has. `mychart auth probe --org <ID>` for
+  one region answers it without signing in: `known` or `unknown`.

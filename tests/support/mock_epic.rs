@@ -422,7 +422,14 @@ fn serve(mut stream: TcpStream, port: u16, state: &Arc<Mutex<State>>) -> Option<
         ("GET", "/oauth2/authorize") => {
             let get = |k: &str| q.get(k).cloned().unwrap_or_default();
             if get("client_id") != CLIENT_ID {
-                respond(&mut stream, 400, &[], "unknown client");
+                // Epic's page for a client id the organization does not know.
+                respond(
+                    &mut stream,
+                    200,
+                    &[("Content-Type", "text/html".into())],
+                    "<html><head><title>OAuth2 Error</title></head><body>Something went \
+                     wrong trying to authorize the client.</body></html>",
+                );
                 return Some(());
             }
             if get("response_type") != "code"
@@ -438,7 +445,17 @@ fn serve(mut stream: TcpStream, port: u16, state: &Arc<Mutex<State>>) -> Option<
                 || redirect.starts_with("http://localhost:")
                 || page.as_deref() == Some(redirect.as_str()))
             {
-                respond(&mut stream, 400, &[], "redirect_uri not registered");
+                // Epic's answer to a redirect_uri the app does not list.
+                respond(
+                    &mut stream,
+                    302,
+                    &[(
+                        "Location",
+                        "/mychart-fhir/Authentication/OAuth/Start?response_type=code&error=4"
+                            .into(),
+                    )],
+                    "",
+                );
                 return Some(());
             }
             let mut st = state.lock().unwrap();
