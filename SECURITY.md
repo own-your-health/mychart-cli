@@ -14,9 +14,10 @@ on this repository. Please do not open a public issue.
   its profile, with no default, and each profile signs in in its own
   Chrome profile, so one MyChart account's cookies never sign in another.
   The config file holds each profile's patient contexts (patient ids,
-  labels, organizations); `mychart config show` prints only the profiles'
-  names and patient counts, so its output can be shared to debug a
-  setting.
+  labels, organizations), so mychart writes it owner-only (0600) and
+  whole, replacing a file others could read; `mychart config show` prints
+  only the profiles' names and patient counts, so its output can be shared
+  to debug a setting.
 - **The per-install key**: 3072-bit RSA, made on the computer at sign-in,
   registered with the organization through Epic's dynamic client
   registration. Anyone holding the vault's key and its files can read

@@ -81,6 +81,10 @@ Medical records are the most sensitive data a household has.
   computer's user's (cli-common anchors them to the home directory), not a
   config file's: a profile name means one login whichever config names
   it. `Ctx::vault_note` says so when the config is not beside the vault.
+- The config is written with `Ctx::save_config` (0600, whole, through
+  `fsutil::write_private`), never `ConfigStore::save`, which in cli-common
+  v0.33.0 writes in place at the umask's mode: the file holds patient
+  contexts.
 - A patient context carries no profile: the commands resolve it and pass
   a `ProfileName` beside the context (`Ctx::live`, `auth::stored`,
   `session::login_command`), so a remedy always names it.
