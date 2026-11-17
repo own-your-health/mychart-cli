@@ -24,7 +24,7 @@ the `pk-cli-*` crates from [cli-common](https://github.com/piekstra/cli-common).
 | `docs/api.md` | Epic's behaviour and traps, quoted; read before changing auth or export |
 | `site/` | GitHub Pages (`.github/workflows/pages.yml`): `callback.html`, the https redirect registered for production, which passes the sign-in's answer on to `http://127.0.0.1:7468/callback`; `tests/site.rs` checks its policy and target |
 
-medical-common v0.6.0 (pinned with cli-common v0.33.0, the tag it builds
+medical-common v0.6.1 (pinned with cli-common v0.33.1, the tag it builds
 on) owns the protocol and the stream:
 
 - `pk-med-smart`: discovery, the standalone launch with PKCE, the code
@@ -81,6 +81,12 @@ Medical records are the most sensitive data a household has.
   computer's user's (cli-common anchors them to the home directory), not a
   config file's: a profile name means one login whichever config names
   it. `Ctx::vault_note` says so when the config is not beside the vault.
+- The config holds patient contexts, so it must stay owner-only:
+  cli-common v0.33.1's `ConfigStore::save` writes it 0600 and whole
+  (temporary file, rename), tightens a 0644 file on its next save, and
+  writes a symlinked config at the link's final target, keeping the link.
+  Do not pin an older cli-common, whose `save` wrote in place at the
+  umask's mode; `tests/cli_surface.rs` checks both.
 - A patient context carries no profile: the commands resolve it and pass
   a `ProfileName` beside the context (`Ctx::live`, `auth::stored`,
   `session::login_command`), so a remedy always names it.

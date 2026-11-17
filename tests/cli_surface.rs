@@ -637,3 +637,95 @@ fn profiles_round_trip() {
     );
     assert_eq!(list(&home)["profiles"].as_array().unwrap().len(), 2);
 }
+
+/// The config holds each profile's patient contexts, so every write leaves
+/// it owner-only, a file that was readable by others included.
+#[cfg(unix)]
+#[test]
+fn the_config_is_written_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tmp();
+    let path = json_of(
+        &mychart(&home)
+            .args(["config", "path", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let path = std::path::Path::new(&path);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "{}").unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    for args in [
+        vec!["profiles", "add", "acct1"],
+        vec!["config", "set", "scope", "openid fhirUser"],
+        vec!["config", "unset", "scope"],
+    ] {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        mychart(&home).args(&args).assert().success();
+        assert_eq!(mode(path), 0o600, "{args:?}");
+    }
+    let shown = json_of(
+        &mychart(&home)
+            .args(["profiles", "list", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert_eq!(shown["profiles"], serde_json::json!([{"name": "acct1"}]));
+}
+
+/// A config that is a symbolic link (into a dotfiles checkout, say) is
+/// written at its target, owner-only, and the link stays a link.
+#[cfg(unix)]
+#[test]
+fn a_symlinked_config_is_written_through_and_kept() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tmp();
+    let path = json_of(
+        &mychart(&home)
+            .args(["config", "path", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let link = std::path::Path::new(&path);
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    let dotfiles = home.join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).unwrap();
+    let target = dotfiles.join("mychart.json");
+    std::fs::write(&target, "{}").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+    // Relative, as dotfile managers make them.
+    std::os::unix::fs::symlink("../../dotfiles/mychart.json", link).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(link).unwrap(),
+        std::fs::canonicalize(&target).unwrap()
+    );
+    mychart(&home)
+        .args(["profiles", "add", "acct1"])
+        .assert()
+        .success();
+    assert!(std::fs::symlink_metadata(link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(std::fs::read_to_string(&target).unwrap().contains("acct1"));
+}
