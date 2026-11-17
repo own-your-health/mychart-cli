@@ -167,7 +167,9 @@ needs; the sandbox accepts it too once Epic has synced the app.
 `mychart config unset redirect_uri` goes back to the loopback address.
 
 A sign-in at an organization within 12 hours of marking the app ready can
-fail with an unknown-client error; wait and try again.
+fail with an unknown-client error; wait and try again. The household's app
+reached 6 of 9 organizations it was checked against within 50 minutes
+(2026-11-16, [api.md](api.md) section 3).
 
 To check that the client id reached an organization without signing in,
 run `mychart auth probe --org <ID>`: `known` means a sign-in can start,
