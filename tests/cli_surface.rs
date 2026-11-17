@@ -38,7 +38,19 @@ fn mychart(home: &std::path::Path) -> Command {
     .env("XDG_CACHE_HOME", home.join("cache"))
     .env("MYCHART_BROWSER", "/usr/bin/false")
     .env_remove("MYCHART_CONFIG")
+    .env_remove("MYCHART_PROFILE")
     .env_remove("NO_COLOR");
+    cmd
+}
+
+/// [`mychart`] as the profile `acct1`, which it adds first.
+fn as_acct1(home: &std::path::Path) -> Command {
+    mychart(home)
+        .args(["profiles", "add", "acct1"])
+        .assert()
+        .success();
+    let mut cmd = mychart(home);
+    cmd.env("MYCHART_PROFILE", "acct1");
     cmd
 }
 
@@ -78,6 +90,11 @@ fn every_command_renders_help() {
         vec!["config", "set", "--help"],
         vec!["config", "unset", "--help"],
         vec!["auth", "probe", "--help"],
+        vec!["profiles", "--help"],
+        vec!["profiles", "list", "--help"],
+        vec!["profiles", "add", "--help"],
+        vec!["profiles", "remove", "--help"],
+        vec!["profiles", "migrate", "--help"],
         vec!["self-update", "--help"],
         vec!["completions", "--help"],
         vec!["info", "--help"],
@@ -127,12 +144,17 @@ fn info_declares_both_profiles() {
         "{profiles:?}"
     );
     assert_eq!(v["auth"]["method"], "browser-session");
+    // Login commands take --profile, which a records store checks for.
+    assert!(v["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&Value::from(pk_med_records::LOGIN_PROFILES)));
 }
 
 #[test]
 fn nothing_signed_in_reads_as_such() {
     let home = tmp();
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["auth", "status", "--json"])
         .assert()
         .success()
@@ -144,7 +166,7 @@ fn nothing_signed_in_reads_as_such() {
     assert_eq!(v["authenticated"], false);
     assert_eq!(v["patients"], serde_json::json!([]));
 
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["patients", "list", "--json"])
         .assert()
         .success()
@@ -155,7 +177,7 @@ fn nothing_signed_in_reads_as_such() {
     assert_eq!(v["schema"], "patient-list/v1");
     assert_eq!(v["items"], serde_json::json!([]));
 
-    mychart(&home)
+    as_acct1(&home)
         .args(["records", "export", "--ndjson"])
         .assert()
         .code(3)
@@ -166,7 +188,7 @@ fn nothing_signed_in_reads_as_such() {
         vec!["documents", "list", "--json"],
         vec!["api", "GET", "Patient/x", "--json"],
     ] {
-        let out = mychart(&home)
+        let out = as_acct1(&home)
             .args(&args)
             .assert()
             .code(3)
@@ -181,7 +203,18 @@ fn nothing_signed_in_reads_as_such() {
             "{args:?}"
         );
     }
-    mychart(&home).args(["auth", "logout"]).assert().success();
+    let out = as_acct1(&home)
+        .args(["auth", "logout", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(
+        (&v["settings_cleared"], &v["profiles_kept"]),
+        (&Value::Bool(false), &Value::Bool(true))
+    );
 }
 
 #[test]
@@ -244,9 +277,9 @@ fn bad_arguments_are_refused_before_anything_else() {
         (vec!["orgs", "list", "--limit", "0"], 2),
         (vec!["nonsense"], 2),
     ] {
-        mychart(&home).args(&args).assert().code(code);
+        as_acct1(&home).args(&args).assert().code(code);
     }
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["auth", "login", "--org", "sandbox", "--json"])
         .assert()
         .code(2)
@@ -264,7 +297,7 @@ fn bad_arguments_are_refused_before_anything_else() {
 #[test]
 fn config_round_trips() {
     let home = tmp();
-    mychart(&home)
+    as_acct1(&home)
         .args([
             "config",
             "set",
@@ -273,13 +306,13 @@ fn config_round_trips() {
         ])
         .assert()
         .success();
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "set", "redirect_port", "8123"])
         .assert()
         .success();
     // The published page forwards to 7468 only: with another port it is
     // refused, and the file keeps what it had.
-    let refused = mychart(&home)
+    let refused = as_acct1(&home)
         .args(["config", "set", "redirect_uri", PUBLISHED])
         .assert()
         .code(2)
@@ -287,7 +320,7 @@ fn config_round_trips() {
         .stderr
         .clone();
     assert!(String::from_utf8_lossy(&refused).contains("8123"));
-    mychart(&home)
+    as_acct1(&home)
         .args([
             "config",
             "set",
@@ -296,7 +329,7 @@ fn config_round_trips() {
         ])
         .assert()
         .success();
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["config", "show", "--json"])
         .assert()
         .success()
@@ -307,24 +340,24 @@ fn config_round_trips() {
     assert_eq!(v["client_id"], "00000000-0000-0000-0000-000000000001");
     assert_eq!(v["redirect_port"], 8123);
     assert_eq!(v["redirect_uri"], "https://pages.example.org/callback");
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "unset", "redirect_uri"])
         .assert()
         .success();
     // In the other order: the page at 7468, then another port.
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "unset", "redirect_port"])
         .assert()
         .success();
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "set", "redirect_uri", PUBLISHED])
         .assert()
         .success();
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "set", "redirect_port", "8123"])
         .assert()
         .code(2);
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["config", "show", "--json"])
         .assert()
         .success()
@@ -334,15 +367,15 @@ fn config_round_trips() {
     let v = json_of(&out);
     assert_eq!(v["redirect_uri"], PUBLISHED);
     assert!(v.get("redirect_port").is_none(), "{v}");
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "unset", "redirect_uri"])
         .assert()
         .success();
-    mychart(&home)
+    as_acct1(&home)
         .args(["config", "unset", "redirect_port"])
         .assert()
         .success();
-    let out = mychart(&home)
+    let out = as_acct1(&home)
         .args(["config", "path", "--json"])
         .assert()
         .success()
@@ -353,11 +386,23 @@ fn config_round_trips() {
         .as_str()
         .unwrap()
         .ends_with("mychart/config.json"));
-    mychart(&home)
-        .args(["auth", "logout", "--forget"])
+    let out = as_acct1(&home)
+        .args(["auth", "logout", "--forget", "--json"])
         .assert()
-        .success();
-    let out = mychart(&home)
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(
+        (
+            &v["settings_cleared"],
+            &v["profiles_kept"],
+            &v["config_cleared"]
+        ),
+        (&Value::Bool(true), &Value::Bool(true), &Value::Bool(true))
+    );
+    let out = as_acct1(&home)
         .args(["config", "show", "--json"])
         .assert()
         .success()
@@ -459,9 +504,136 @@ fn an_unreachable_directory_is_an_upstream_error() {
 #[test]
 fn no_color_is_accepted() {
     let home = tmp();
-    mychart(&home)
+    as_acct1(&home)
         .env("NO_COLOR", "1")
         .args(["patients", "list"])
         .assert()
         .success();
+}
+
+/// A command that uses a sign-in needs `--profile` (or MYCHART_PROFILE):
+/// without one it is exit 2, naming the remedy or the configured profiles,
+/// before the Keychain or the network.
+#[test]
+fn a_login_command_needs_its_profile() {
+    let home = tmp();
+    let out = mychart(&home)
+        .args(["auth", "status", "--json"])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let v = json_of(&out);
+    assert_eq!(v["error"]["code"], "usage");
+    assert!(v.to_string().contains("profiles add"), "{v}");
+    as_acct1(&home);
+    for args in [
+        vec!["auth", "status"],
+        vec!["auth", "logout"],
+        vec!["patients", "list"],
+        vec!["records", "export", "--ndjson"],
+        vec!["documents", "list"],
+        vec!["api", "GET", "Patient/x"],
+        vec!["auth", "login", "--org", "sandbox"],
+    ] {
+        mychart(&home)
+            .args(&args)
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("configured: acct1"));
+        mychart(&home)
+            .args(&args)
+            .args(["--profile", "acct9"])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("no profile `acct9`"));
+    }
+    // Commands that use no sign-in take none.
+    mychart(&home).args(["orgs", "--help"]).assert().success();
+    mychart(&home).args(["config", "path"]).assert().success();
+    mychart(&home).args(["info"]).assert().success();
+}
+
+#[test]
+fn profiles_round_trip() {
+    let home = tmp();
+    let list = |home: &std::path::Path| {
+        json_of(
+            &mychart(home)
+                .args(["profiles", "list", "--json"])
+                .assert()
+                .success()
+                .get_output()
+                .stdout
+                .clone(),
+        )
+    };
+    let v = list(&home);
+    assert_eq!(v["schema"], "profile-list/v1");
+    assert_eq!(v["profiles"], serde_json::json!([]));
+    for bad in ["Has Space", "UPPER", "", "-lead", &"a".repeat(33)] {
+        mychart(&home)
+            .args(["profiles", "add", bad])
+            .assert()
+            .code(2);
+    }
+    for name in ["adult2-org", "acct1"] {
+        mychart(&home)
+            .args(["profiles", "add", name])
+            .assert()
+            .success();
+    }
+    let v = list(&home);
+    assert_eq!(
+        v["profiles"],
+        serde_json::json!([{"name": "acct1"}, {"name": "adult2-org"}])
+    );
+    // `config show` names the profiles and counts their patients, nothing
+    // more.
+    let shown = json_of(
+        &mychart(&home)
+            .args(["config", "show", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert_eq!(
+        shown["profiles"],
+        serde_json::json!([{"name": "acct1", "patients": 0}, {"name": "adult2-org", "patients": 0}])
+    );
+    mychart(&home)
+        .args(["profiles", "remove", "acct1"])
+        .assert()
+        .code(6);
+    mychart(&home)
+        .args(["profiles", "remove", "acct1", "--force"])
+        .assert()
+        .success();
+    assert_eq!(
+        list(&home)["profiles"],
+        serde_json::json!([{"name": "adult2-org"}])
+    );
+    mychart(&home)
+        .args(["profiles", "remove", "acct1", "--force"])
+        .assert()
+        .code(4);
+    // Nothing from 0.4 to move: exit 0, and the profile is there.
+    let v = json_of(
+        &mychart(&home)
+            .args(["profiles", "migrate", "acct3", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    );
+    assert_eq!(v["schema"], "profile-migrate/v1");
+    assert_eq!(
+        (v["moved"].as_u64(), v["contexts"].as_u64()),
+        (Some(0), Some(0))
+    );
+    assert_eq!(list(&home)["profiles"].as_array().unwrap().len(), 2);
 }

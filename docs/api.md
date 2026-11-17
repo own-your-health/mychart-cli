@@ -138,7 +138,7 @@ What mychart does (oauth2, "Dynamic Client Registration"):
    and should be used for registration immediately."
 2. "Generate a public-private key pair on the user's phone or computer" and
    "Securely store that device-specific key pair": a 3072-bit RSA key, kept
-   in the Keychain item with the tokens.
+   in the sign-in's vault entry with the tokens.
 3. `POST` the `register` endpoint with `Authorization: Bearer <initial
    token>` and `{"software_id": <the app's client id>, "jwks": {"keys":
    [<public RSA JWK>]}}`. "software_id: This parameter must contain the
@@ -188,8 +188,8 @@ the refresh lock (the JWT-bearer grant, or the refresh token when there is
 no dynamic client) and asks again; another process that renewed meanwhile
 has stored a different token, which is used instead. When the grant is
 refused, the sign-in has no way to renew, or the server answers 401 to the
-token it has just issued (and the Keychain still holds that token), the
-Keychain item records `refused_at` (pk-med-smart's `SmartSession`, stamped
+token it has just issued (and the vault still holds that token), the
+stored sign-in records `refused_at` (pk-med-smart's `SmartSession`, stamped
 by its `Renewer` for a refused grant and by mychart for a 401 to the token
 just issued): `auth status` shows the sign-in as not
 authenticated (`status.refused_at` in `--json`, a `refused_at` column in
@@ -199,8 +199,34 @@ passes does not cost a sign-in. A sign-in with no way to renew (no
 dynamic client and no refresh token) stays refused, exit 3, until `auth
 login`.
 
-Each Keychain item is one `SmartSession` (pk-med-smart, `format` 1), under
-the account `smart/<organization>/<patient>`. mychart 0.1 stored its own
+Each sign-in is one `SmartSession` (pk-med-smart, `format` 1) in the CLI's
+vault (`pk_cli_auth::vault`): an encrypted file under
+`~/.config/mychart/vault/`, entry `<profile>/<organization>/<patient>`
+(`pk_med_smart::ProfileSessions`' name), sealed with one Keychain key
+(`piekstra.mychart`, account `vault-key`), so a newly built mychart asks
+macOS once rather than once per sign-in. A profile is one MyChart account
+at one organization; every command that uses a sign-in names it
+(`--profile`, or `MYCHART_PROFILE`), with no default, and its contexts are
+its settings in the config (`config show` prints each profile's name and
+how many patients it holds, not the patients). The vault and the browser
+profiles belong to this computer's user, not to a config file: a second
+config (`--config`, `MYCHART_CONFIG`) naming the same profile is the same
+login, and mychart says so when a config is not beside the vault.
+mychart 0.4 and earlier kept a Keychain item per sign-in, account
+`smart/<organization>/<patient>`, listed in `contexts.json`. `mychart
+profiles migrate <NAME> [--org <ORG>] [--patient <WHO>]` moves one
+login's into a profile with pk-med-smart's `migrate_sessions` (no
+network, no new approval in MyChart, one macOS dialog per item for a
+newly built binary; a failure leaves the item for the next run). A login
+is an organization and the user who signed in (`fhirUser`), so a parent's
+own sign-in and a child's through proxy access move together; rows from
+two logins are refused (exit 2, naming them) until `--org` or `--patient`
+picks one, and the rows not moved stay in `contexts.json` for the next
+profile. It is one-way: mychart 0.4 finds neither the moved items nor
+their rows. `auth logout` removes sign-ins and never a profile
+(`auth-logout/v1` `profiles_kept` is always true); `--forget` also clears
+the settings other than profiles (`settings_cleared`, which 0.4 called
+`config_cleared`, kept under that name too through 0.5). mychart 0.1 stored its own
 shape under the same account. 0.2 does not read it: `auth status` lists it
 with `status.unreadable`, any command for that patient exits 3 with the
 `auth login` command that replaces it, and `auth logout` deletes it unread.
@@ -285,7 +311,7 @@ another person's account, you will need to select to which account you are
 linking the app." Its screenshot reads "Which patient do you want
 <application name> to be able to link to? Yourself / Your child" (patient
 auth). One sign-in links one patient, so a parent signs in once per child
-(`mychart auth login --org <ORG> --label <child>`).
+(`mychart auth login --profile <NAME> --org <ORG> --label <child>`).
 
 The token response's `patient` is the patient picked. The id token says who
 signed in: "MyChart self access workflows: Patient resource / MyChart proxy
@@ -570,6 +596,19 @@ those bases authorize at 226 and 326. mychart uses Brands.
   `permission-v1` and `-v2`, PKCE `S256`, and the `jwt-bearer` grant. The
   CapabilityStatement's `implementation.url` is the `KPPolarisPortal` path,
   not the base; requests and `aud` use the directory's base.
+- **Sign-in.** At Northwest (132) the authorize endpoint answers a 302 to
+  `healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start`, which
+  answers 500 without a kp.org session, and the MyChart login page beside
+  it (`/fhirnw/Authentication/Login`) answers 410 Gone (2026-11-17): Kaiser
+  members sign in at kp.org ("Since MyChart is already built into kp.org
+  and the Kaiser Permanente app, there's no need for you to create a
+  separate MyChart account"). So where the authorization endpoint is on
+  `fhir.kp.org`, `auth login` opens kp.org's sign-in
+  (`https://healthy.kaiserpermanente.org/sign-on`) in the profile's window
+  first, then the authorize address, and the profile's Chrome profile keeps
+  kp.org's cookies for the next sign-in. Washington (439), the former Group
+  Health, has a MyChart login page of its own; whether it needs the kp.org
+  page too is not yet seen.
 - **Northwest and Washington are two organizations.** Northwest covers Oregon
   and SW Washington; Washington is the former Group Health. A person with
   records in both signs in to each.

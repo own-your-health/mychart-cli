@@ -20,7 +20,7 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
         ));
     }
     let path = args.path.trim();
-    let c = ctx.signed_in(&args.who)?;
+    let (p, c) = ctx.signed_in(&args.who)?;
     // Refused before the Keychain is read: the sign-in goes only to the
     // server it was made at.
     if path.contains("://") && (origin(path).is_none() || origin(path) != origin(&c.fhir_base)) {
@@ -30,7 +30,7 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
         )));
     }
     let t = transport()?;
-    let live = ctx.live(&t, &c)?;
+    let live = ctx.live(&t, &p, &c)?;
     let fhir = Fhir::new(&t, &live)?;
     let body = fhir.get_raw(path.trim_start_matches('/'))?;
     println!("{}", body.trim_end());

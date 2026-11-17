@@ -12,14 +12,13 @@ use pk_med_smart::{
 };
 use serde_json::{json, Value};
 
-use super::{orgs as orgs_cmd, rfc3339, transport, Ctx, BIN};
+use super::{orgs as orgs_cmd, rfc3339, transport, Ctx, Opening, BIN};
 use crate::cli::{AuthCmd, LoginArgs, LogoutArgs, ProbeArgs};
 use crate::config::Config;
 use crate::epic::{self, EpicQuirks};
 use crate::fhir::Fhir;
 use crate::orgs::{self, Org};
 use crate::session::{self, now, Context};
-use crate::vault::Sessions;
 
 /// The per-install key's size. Epic accepts RS384 with 2048 bits or more;
 /// 3072 is NIST's size for keys used past 2030.
@@ -86,7 +85,7 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
             "known" => println!(
                 "{name} knows this app's client id (config key {client}) with the redirect \
                  {redirect}: \
-                 `{BIN} auth login --org {id}` can sign in"
+                 `{BIN} auth login --profile <NAME> --org {id}` can sign in"
             ),
             "unknown" => println!(
                 "{name} does not know this app's client id (config key {client}) yet. Epic \
@@ -101,7 +100,8 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
             ),
             _ => println!(
                 "{name} answered HTTP {}, which {BIN} does not recognize; \
-                 `{BIN} auth login --org {id} --no-browser` prints the address to open",
+                 `{BIN} auth login --profile <NAME> --org {id} --no-browser` prints the \
+                 address to open",
                 v["status"]
             ),
         }
@@ -182,6 +182,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     if args.timeout == 0 || args.timeout > 60 {
         return Err(CliError::Usage("--timeout is 1 to 60 minutes".into()));
     }
+    let profile = ctx.profile_name()?;
     let cfg = ctx.config()?;
     let org = resolve_org(ctx, &args.org)?;
     let (client_id, _) = client_id_for(&cfg, &org)?;
@@ -230,7 +231,34 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         },
     )?;
     let url = signin.url().to_string();
-    let opened = !args.no_browser && (ctx.browser)(&url);
+    let before = epic::pages_before(&config.authorization_endpoint);
+    // The profile's own Chrome window, so one login's cookies never sign
+    // in another; kept open until the answer arrives.
+    let mut window = None;
+    let mut opened = false;
+    if !args.no_browser {
+        match (ctx.window)(&Opening {
+            profile: &profile,
+            sign_in: &signin,
+            before,
+        }) {
+            Ok(w) => {
+                window = Some(w);
+                opened = true;
+            }
+            Err(e) => {
+                ctx.note(format!(
+                    "warning: the sign-in window did not open ({}); using the default browser, \
+                     whose cookies every profile shares",
+                    e.message()
+                ));
+                for page in before {
+                    (ctx.browser)(page);
+                }
+                opened = (ctx.browser)(&url);
+            }
+        }
+    }
     let through = cfg
         .redirect_uri
         .as_ref()
@@ -247,6 +275,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     let code = signin.wait_for_code(Duration::from_secs(args.timeout * 60), |why| {
         eprintln!("ignored an answer that is not this sign-in's: {why}")
     })?;
+    drop(window);
     let oauth = OAuthClient::new(t.clone(), BIN, version);
     let mut session = block_on(signin.exchange(&oauth, &client, &code, &org.id, now_u64()))
         .map_err(|e| match e.remedy() {
@@ -258,7 +287,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
                     .map(|l| format!(" --label {l}"))
                     .unwrap_or_default();
                 e.with_remedy(format!(
-                    "sign in again: `{BIN} auth login --org {}{label}`",
+                    "sign in again: `{BIN} auth login --profile {profile} --org {}{label}`",
                     org.id
                 ))
             }
@@ -286,7 +315,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         .and_then(epic::fhir_user_reference);
     let at = now();
 
-    let sessions = Sessions::new(ctx.vault.clone());
+    let sessions = ctx.sessions(&profile);
     let register = config.registration_endpoint.is_some() && cfg.dynamic_registration();
     if register {
         ctx.note("registering this install with the organization, so access lasts past an hour");
@@ -317,7 +346,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         fhir_user,
         signed_in_at: rfc3339(at),
     };
-    ctx.index()?.upsert(context.clone())?;
+    ctx.update_profile(&profile, |settings| settings.upsert(context.clone()))?;
 
     if register {
         let renewer_quirks = EpicQuirks::default();
@@ -465,8 +494,12 @@ pub fn usable(row: &Value) -> bool {
 
 /// A context's stored session. A Keychain that refuses the read is the
 /// error; an item that does not read is [`Stored::Unreadable`].
-pub fn stored(ctx: &Ctx, c: &Context) -> Result<Stored, CliError> {
-    let Some(text) = ctx.vault.read(&c.account())? else {
+pub fn stored(
+    ctx: &Ctx,
+    profile: &pk_cli_config::profile::ProfileName,
+    c: &Context,
+) -> Result<Stored, CliError> {
+    let Some(text) = ctx.sessions(profile).read(&c.account())? else {
         return Ok(Stored::Missing);
     };
     Ok(match decode_session(&text) {
@@ -476,12 +509,13 @@ pub fn stored(ctx: &Ctx, c: &Context) -> Result<Stored, CliError> {
 }
 
 fn status(ctx: &Ctx) -> Result<(), CliError> {
-    let contexts = ctx.contexts()?;
+    let profile = ctx.profile_name()?;
+    let contexts = ctx.contexts(&profile)?;
     let mut rows = Vec::new();
     let mut any_stored = false;
     let mut any_usable = false;
     for c in &contexts {
-        let s = stored(ctx, c)?;
+        let s = stored(ctx, &profile, c)?;
         any_stored |= s.in_keychain();
         any_usable |= s.session().is_some_and(|s| session::usable(s, now()));
         rows.push(status_row(c, &s));
@@ -496,7 +530,9 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     } else {
         status.render();
         if rows.is_empty() {
-            println!("Patients:      none signed in (`{BIN} auth login --org <ORG>`)");
+            println!(
+                "Patients:      none signed in (`{BIN} auth login --profile {profile} --org <ORG>`)"
+            );
         } else {
             println!();
             let view: Vec<Value> = rows
@@ -520,7 +556,8 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
 }
 
 fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
-    let contexts = ctx.contexts()?;
+    let profile = ctx.profile_name()?;
+    let contexts = ctx.contexts(&profile)?;
     let chosen: Vec<&Context> = match (&args.patient, &args.org) {
         (None, None) => contexts.iter().collect(),
         (patient, org) => {
@@ -540,7 +577,12 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
                 None => None,
             };
             match patient {
-                Some(p) => vec![session::pick(&contexts, Some(p), org_id.as_deref())?],
+                Some(p) => vec![session::pick(
+                    &profile,
+                    &contexts,
+                    Some(p),
+                    org_id.as_deref(),
+                )?],
                 None => contexts
                     .iter()
                     .filter(|c| Some(&c.organization) == org_id.as_ref())
@@ -548,19 +590,31 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
             }
         }
     };
-    let index = ctx.index()?;
+    let sessions = ctx.sessions(&profile);
     let mut removed = Vec::new();
     for c in chosen {
         let account = c.account();
-        ctx.lock.forget(|| ctx.vault.delete(&account))?;
-        index.remove(&c.organization, &c.id)?;
+        ctx.lock.forget(|| sessions.delete(&account))?;
+        ctx.update_profile(&profile, |settings| settings.remove(&c.organization, &c.id))?;
         removed.push(json!({ "id": c.id, "organization": c.organization }));
     }
     if args.forget {
-        ctx.store.clear()?;
+        // The settings other than profiles: another profile's sign-ins
+        // stay listed with it.
+        let cfg = ctx.config()?;
+        ctx.store.save(&Config {
+            profiles: cfg.profiles,
+            ..Config::default()
+        })?;
     }
+    // A logout never removes a profile, with `--forget` or without.
+    // `config_cleared` is 0.4's name for `settings_cleared`, kept through
+    // 0.5.
     let payload = json!({
+        "profile": profile.as_str(),
         "removed": removed,
+        "settings_cleared": args.forget,
+        "profiles_kept": true,
         "config_cleared": args.forget,
     });
     output::emit(ctx.json(), "auth-logout", payload, |p| {
@@ -568,7 +622,11 @@ fn logout(ctx: &Ctx, args: &LogoutArgs) -> Result<(), CliError> {
         println!(
             "signed out of {n} patient context{}{}",
             if n == 1 { "" } else { "s" },
-            if args.forget { "; config cleared" } else { "" }
+            if args.forget {
+                "; settings cleared, profiles kept"
+            } else {
+                ""
+            }
         );
     });
     Ok(())

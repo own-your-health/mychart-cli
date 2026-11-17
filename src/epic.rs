@@ -115,6 +115,27 @@ pub fn relationship(fhir_user: Option<&str>, patient: &str) -> Option<&'static s
     })
 }
 
+/// Kaiser Permanente's sign-in page. Its Epic organizations' MyChart
+/// (`/fhir…/Authentication/OAuth/Start` on healthy.kaiserpermanente.org)
+/// answers the authorize request only inside a kp.org session, and 500
+/// without one (docs/api.md, Kaiser Permanente).
+pub const KP_SIGN_ON: &str = "https://healthy.kaiserpermanente.org/sign-on";
+
+/// The pages a sign-in's window opens before the authorize address:
+/// kp.org's sign-in where the authorize endpoint is Kaiser Permanente's
+/// (`fhir.kp.org`), none elsewhere. The profile's browser keeps kp.org's
+/// cookies, so a later sign-in may find that session still open.
+pub fn pages_before(authorization_endpoint: &str) -> &'static [&'static str] {
+    let host = reqwest::Url::parse(authorization_endpoint)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
+    if host.as_deref() == Some("fhir.kp.org") {
+        &[KP_SIGN_ON]
+    } else {
+        &[]
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -207,5 +228,22 @@ mod tests {
         assert_eq!(relationship(Some("Patient/p1"), "p1"), Some("self"));
         assert_eq!(relationship(Some("RelatedPerson/r1"), "p1"), Some("proxy"));
         assert_eq!(relationship(None, "p1"), None);
+    }
+
+    #[test]
+    fn only_kaiser_permanente_opens_kp_org_first() {
+        assert_eq!(
+            pages_before(
+                "https://fhir.kp.org/service/ptnt_care/csrv_fhir/FHIR-iSite/oauth2/authorize"
+            ),
+            [KP_SIGN_ON]
+        );
+        for other in [
+            "https://fhir.epic.com/interconnect-fhir-oauth/oauth2/authorize",
+            "https://fhir.kp.org.example.org/oauth2/authorize",
+            "not a url",
+        ] {
+            assert!(pages_before(other).is_empty(), "{other}");
+        }
     }
 }

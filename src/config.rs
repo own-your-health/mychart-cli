@@ -4,6 +4,7 @@
 //! its own app with Epic (docs/registration.md) and sets the ids it was
 //! issued. For a public client they are not secrets.
 
+use pk_cli_config::profile::Profiles;
 use pk_cli_core::CliError;
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +60,11 @@ pub struct Config {
     /// stored `localhost` no longer applies; `config unset` clears it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_host: Option<String>,
+    /// One profile per MyChart account at one organization, each holding
+    /// its patient contexts (`session::ProfileSettings`). Names are the
+    /// household's own and stay in this file.
+    #[serde(default, skip_serializing_if = "Profiles::is_empty")]
+    pub profiles: Profiles,
 }
 
 impl Config {

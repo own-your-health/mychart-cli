@@ -2,7 +2,9 @@
 //! directory download, discovery with `Epic-Client-ID`, the standalone
 //! launch through a stand-in browser, the code exchange, dynamic client
 //! registration, the JWT-bearer grant, renewal, proxy access and logout.
-//! The vault is in memory, so no Keychain is read on any platform.
+//! The vault is in memory, so no Keychain is read on any platform; the
+//! sign-in window is a stand-in too (Chrome is not run), and every command
+//! runs as the profile `acct1`.
 
 #[path = "support/mock_epic.rs"]
 mod mock_epic;
@@ -18,6 +20,8 @@ use std::sync::Arc;
 use mychart::session::{self, Live};
 use mychart::vault::{MemoryVault, Sessions};
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_auth::vault::MemoryKeys;
+use pk_cli_config::profile::ProfileName;
 use pk_cli_config::ConfigStore;
 use pk_cli_core::{CliError, CommonArgs};
 use pk_cli_http::BlockingTransport;
@@ -80,6 +84,11 @@ fn browser_through(page: &'static str, port: u16) -> impl Fn(&str) -> bool {
     }
 }
 
+/// The profile every test runs as.
+fn p() -> ProfileName {
+    ProfileName::parse("acct1").unwrap()
+}
+
 fn ctx(dir: &Path, mock: &MockEpic, configure: impl FnOnce(&mut Config)) -> Ctx {
     let store = ConfigStore::new("mychart").with_override(Some(dir.join("config.json")));
     let mut cfg = Config {
@@ -88,6 +97,7 @@ fn ctx(dir: &Path, mock: &MockEpic, configure: impl FnOnce(&mut Config)) -> Ctx 
         redirect_port: Some(free_port()),
         ..Config::default()
     };
+    cfg.profiles.add(p());
     configure(&mut cfg);
     store.save(&cfg).unwrap();
     Ctx {
@@ -96,11 +106,20 @@ fn ctx(dir: &Path, mock: &MockEpic, configure: impl FnOnce(&mut Config)) -> Ctx 
             quiet: true,
             ..CommonArgs::default()
         },
+        profile: Some(p().to_string()),
         store,
         vault: Arc::new(MemoryVault::default()),
+        legacy: Arc::new(MemoryKeys::new()),
         lock: RefreshLock::at(dir.join("token-refresh.lock")),
         cache_dir: dir.join("cache"),
+        forget_browser: Box::new(|_: &ProfileName| Ok(false)),
+        // No Chrome here: the sign-in falls back to `browser`, the stand-in
+        // that plays MyChart, as the binary falls back to the default one.
+        window: Box::new(|_: &commands::Opening<'_>| {
+            Err(CliError::Other("no Chrome in the tests".into()))
+        }),
         browser: Box::new(browser),
+        vault_note: None,
     }
 }
 
@@ -118,7 +137,7 @@ fn login(ctx: &Ctx, label: &str) {
 }
 
 fn sessions(ctx: &Ctx) -> Sessions {
-    Sessions::new(ctx.vault.clone())
+    Sessions::new(ctx.vault.clone(), p())
 }
 
 fn stored(ctx: &Ctx, patient: &str) -> SmartSession {
@@ -135,7 +154,7 @@ fn store(ctx: &Ctx, s: &SmartSession) {
 fn live(ctx: &Ctx, c: &session::Context) -> Result<Live<BlockingTransport>, CliError> {
     Live::start(
         &commands::transport().unwrap(),
-        ctx.vault.clone(),
+        sessions(ctx),
         &ctx.lock,
         c,
         None,
@@ -171,7 +190,7 @@ fn a_sign_in_registers_the_install_and_renews_without_the_browser() {
     // the ID token echoed (pk-med-smart refuses one that does not).
     assert_eq!(mock.get(|st| st.nonces), 1);
 
-    let contexts = ctx.contexts().unwrap();
+    let contexts = ctx.contexts(&p()).unwrap();
     assert_eq!(contexts.len(), 1);
     assert_eq!(contexts[0].label.as_deref(), Some("adult1"));
     assert_eq!(contexts[0].relationship.as_deref(), Some("self"));
@@ -252,7 +271,7 @@ fn a_probe_tells_a_known_client_from_an_unknown_one_and_a_refused_redirect() {
         let mut ctx = ctx(dir.path(), &mock, configure);
         ctx.browser = Box::new(|_: &str| panic!("no browser may open"));
         let v = commands::auth::probe_org(&ctx, ORG_ID).unwrap();
-        assert!(ctx.contexts().unwrap().is_empty(), "nothing stored");
+        assert!(ctx.contexts(&p()).unwrap().is_empty(), "nothing stored");
         v
     };
     let known = probe(&|_| {});
@@ -311,16 +330,16 @@ fn a_parent_reaches_a_child_through_proxy_access() {
     mock.set(|st| st.pick = Pick::Child);
     login(&ctx, "child1");
 
-    let contexts = ctx.contexts().unwrap();
+    let contexts = ctx.contexts(&p()).unwrap();
     assert_eq!(contexts.len(), 2);
-    let child = session::pick(&contexts, Some("child1"), None).unwrap();
+    let child = session::pick(&p(), &contexts, Some("child1"), None).unwrap();
     assert_eq!(child.id, CHILD_PATIENT);
     assert_eq!(child.relationship.as_deref(), Some("proxy"));
     assert_eq!(child.fhir_user.as_deref(), Some(PROXY_USER));
     assert!(stored(&ctx, CHILD_PATIENT).renewable());
     // Two people held: a command that reads records must be told which.
     assert_eq!(
-        session::pick(&contexts, None, None)
+        session::pick(&p(), &contexts, None, None)
             .unwrap_err()
             .exit_code(),
         2
@@ -335,7 +354,7 @@ fn a_parent_reaches_a_child_through_proxy_access() {
         }),
     )
     .unwrap();
-    let left = ctx.contexts().unwrap();
+    let left = ctx.contexts(&p()).unwrap();
     assert_eq!(left.len(), 1);
     assert_eq!(left[0].id, SELF_PATIENT);
     assert!(sessions(&ctx)
@@ -352,8 +371,11 @@ fn a_parent_reaches_a_child_through_proxy_access() {
         }),
     )
     .unwrap();
-    assert!(ctx.contexts().unwrap().is_empty());
-    assert!(!dir.path().join("config.json").exists());
+    assert!(ctx.contexts(&p()).unwrap().is_empty());
+    // --forget clears the settings and keeps the profiles.
+    let cfg = ctx.config().unwrap();
+    assert!(cfg.client_id.is_none());
+    assert!(cfg.profiles.contains(&p()));
 }
 
 #[test]
@@ -362,7 +384,7 @@ fn an_ended_access_period_asks_for_a_new_sign_in() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     let mut s = stored(&ctx, SELF_PATIENT);
     s.tokens.expires_at = Some(0);
     store(&ctx, &s);
@@ -441,7 +463,7 @@ fn export_stream(
     since: Option<&str>,
 ) -> (Vec<serde_json::Value>, Vec<String>) {
     let c = ctx
-        .contexts()
+        .contexts(&p())
         .unwrap()
         .into_iter()
         .find(|c| c.id == patient)
@@ -633,9 +655,8 @@ fn export_to_a_file_is_for_synthetic_servers_only() {
     let mock = MockEpic::start();
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
-    ctx.index()
-        .unwrap()
-        .upsert(session::Context {
+    ctx.update_profile(&p(), |s| {
+        s.upsert(session::Context {
             id: "pat-0001".into(),
             organization: "1000-1".into(),
             organization_name: "Example Health".into(),
@@ -645,7 +666,8 @@ fn export_to_a_file_is_for_synthetic_servers_only() {
             fhir_user: None,
             signed_in_at: "2026-01-01T00:00:00Z".into(),
         })
-        .unwrap();
+    })
+    .unwrap();
     let e = commands::records::run(
         &ctx,
         &mychart::cli::RecordsCmd::Export(mychart::cli::ExportArgs {
@@ -979,7 +1001,7 @@ fn a_failed_first_grant_keeps_the_registered_install() {
     assert!(!session::usable(&s, session::now()));
     assert_eq!(mock.get(|st| st.registrations), 1);
 
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     let Err(e) = fresh(&ctx, &c) else {
         panic!("a refused grant returned a session")
     };
@@ -1013,7 +1035,7 @@ fn a_revoked_token_is_renewed_once_and_the_export_goes_on() {
 /// An export of `patient` that may fail: the error, if any.
 fn export_result(ctx: &Ctx, patient: &str) -> Result<(), CliError> {
     let c = ctx
-        .contexts()
+        .contexts(&p())
         .unwrap()
         .into_iter()
         .find(|c| c.id == patient)
@@ -1041,7 +1063,7 @@ fn a_refused_renewal_shows_in_status_and_its_token_is_not_sent_again() {
     let e = export_result(&ctx, SELF_PATIENT).unwrap_err();
     assert_eq!(e.exit_code(), 3, "{e}");
 
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     let s = stored(&ctx, SELF_PATIENT);
     assert!(s.refused_at.is_some());
     let row = commands::auth::patient_dto(&c, Some(&s));
@@ -1086,7 +1108,7 @@ fn the_registered_install_renews_even_when_a_refresh_token_is_held() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     let mut s = stored(&ctx, SELF_PATIENT);
     // A refresh token from the code exchange, issued to the app's client id.
     s.tokens.refresh_token = Some("issued-to-the-app".into());
@@ -1104,9 +1126,9 @@ fn a_patient_index_naming_another_server_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
-    let mut c = ctx.contexts().unwrap().remove(0);
+    let mut c = ctx.contexts(&p()).unwrap().remove(0);
     c.fhir_base = "https://elsewhere.example.org/api/FHIR/R4".into();
-    ctx.index().unwrap().upsert(c).unwrap();
+    ctx.update_profile(&p(), |s| s.upsert(c)).unwrap();
     let hits = mock.get(|st| st.hits.values().sum::<usize>());
     let Err(e) = commands::api::run(
         &ctx,
@@ -1161,7 +1183,7 @@ fn a_401_to_a_token_another_process_replaced_uses_the_new_one_without_a_grant() 
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     let held = stored(&ctx, SELF_PATIENT).tokens.access_token.clone();
     let grants = mock.get(|st| st.jwt_bearer_grants);
     let live = live(&ctx, &c).unwrap();
@@ -1195,7 +1217,7 @@ fn a_401_with_no_way_to_renew_marks_the_sign_in_refused() {
     login(&ctx, "adult1");
     let s = stored(&ctx, SELF_PATIENT);
     assert!(!s.renewable());
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
 
     let Err(e) = live(&ctx, &c)
         .unwrap()
@@ -1223,16 +1245,16 @@ fn a_sign_in_stored_by_0_1_asks_for_a_new_one_and_logout_removes_it() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(dir.path(), &mock, |_| {});
     login(&ctx, "adult1");
-    let c = ctx.contexts().unwrap().remove(0);
+    let c = ctx.contexts(&p()).unwrap().remove(0);
     // mychart 0.1's item: its own shape under the same account.
     ctx.vault
         .write(
-            &c.account(),
+            &mychart::vault::entry_name(&p(), &c.account()).unwrap(),
             r#"{"version":1,"access_token":"an-old-token","expires_at":0,"patient":"x"}"#,
         )
         .unwrap();
 
-    let held = commands::auth::stored(&ctx, &c).unwrap();
+    let held = commands::auth::stored(&ctx, &p(), &c).unwrap();
     let row = commands::auth::status_row(&c, &held);
     assert_eq!(row["status"]["authenticated"], false, "{row}");
     assert!(row["status"]["unreadable"].is_string(), "{row}");
@@ -1256,7 +1278,11 @@ fn a_sign_in_stored_by_0_1_asks_for_a_new_one_and_logout_removes_it() {
         }),
     )
     .unwrap();
-    assert!(ctx.vault.read(&c.account()).unwrap().is_none());
+    assert!(ctx
+        .vault
+        .read(&mychart::vault::entry_name(&p(), &c.account()).unwrap())
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -1279,7 +1305,7 @@ fn an_id_token_without_this_sign_ins_nonce_is_refused_and_nothing_is_stored() {
     assert!(e.to_string().contains("nonce"), "{e}");
     // Refused at the exchange: no install registered, nothing kept.
     assert_eq!(mock.get(|st| (st.nonces, st.registrations)), (1, 0));
-    assert!(ctx.contexts().unwrap().is_empty());
+    assert!(ctx.contexts(&p()).unwrap().is_empty());
     assert!(sessions(&ctx)
         .load(&session::account(ORG_ID, SELF_PATIENT))
         .unwrap()
@@ -1338,7 +1364,7 @@ fn a_search_page_that_fails_keeps_the_pages_before_it_and_is_one_skip() {
 /// it, short of printing and exiting.
 fn export_dir(ctx: &Ctx, out: &Path) -> commands::records::DirExport {
     let c = ctx
-        .contexts()
+        .contexts(&p())
         .unwrap()
         .into_iter()
         .find(|c| c.id == SELF_PATIENT)
@@ -1486,7 +1512,7 @@ fn a_token_answer_without_expires_in_lasts_an_hour_and_shows_when() {
             Some(s.tokens.obtained_at + session::UNSTATED_LIFETIME_SECS),
             "registered: {registered}"
         );
-        let c = ctx.contexts().unwrap().pop().unwrap();
+        let c = ctx.contexts(&p()).unwrap().pop().unwrap();
         let row = commands::auth::patient_dto(&c, Some(&s));
         assert!(row["status"]["expires_at"].is_string(), "{row}");
         assert_eq!(row["status"]["authenticated"], true);
@@ -1546,7 +1572,7 @@ fn a_granted_patient_id_that_is_not_a_fhir_id_is_refused() {
     .unwrap_err();
     assert_eq!(e.exit_code(), 5, "{e}");
     assert!(e.to_string().contains("not a FHIR id"), "{e}");
-    assert!(ctx.contexts().unwrap().is_empty());
+    assert!(ctx.contexts(&p()).unwrap().is_empty());
     assert_eq!(mock.get(|st| st.registrations), 0);
 }
 
@@ -1653,4 +1679,259 @@ fn a_reference_with_an_id_fhir_does_not_allow_is_a_skip() {
         mock.get(|st| st.hits.keys().filter(|k| k.contains("has")).count()),
         0
     );
+}
+
+/// A command that uses a sign-in names its profile: none, or one not
+/// configured, is exit 2 naming the configured ones, before the vault or
+/// the organization is reached.
+#[test]
+fn a_command_without_its_profile_is_refused_before_the_vault_or_the_network() {
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    login(&ctx, "adult1");
+    let hits = mock.get(|st| st.hits.values().sum::<usize>());
+    for profile in [None, Some("acct9")] {
+        ctx.profile = profile.map(str::to_string);
+        let refusals = [
+            commands::auth::run(&ctx, &AuthCmd::Status).unwrap_err(),
+            commands::patients::run(&ctx, &PatientsCmd::List { status: true }).unwrap_err(),
+            commands::api::run(
+                &ctx,
+                &mychart::cli::ApiArgs {
+                    method: "GET".into(),
+                    path: format!("Patient/{SELF_PATIENT}"),
+                    who: mychart::cli::PatientArgs::default(),
+                },
+            )
+            .unwrap_err(),
+            commands::auth::run(
+                &ctx,
+                &AuthCmd::Login(LoginArgs {
+                    org: ORG_ID.into(),
+                    label: None,
+                    no_browser: true,
+                    timeout: 1,
+                }),
+            )
+            .unwrap_err(),
+        ];
+        for e in refusals {
+            assert_eq!(e.exit_code(), 2, "{e}");
+            assert!(e.to_string().contains("acct1"), "{e}");
+        }
+    }
+    assert_eq!(mock.get(|st| st.hits.values().sum::<usize>()), hits);
+}
+
+/// The sign-in opens in the profile's own window, with no page before it
+/// at an organization that is not Kaiser Permanente's, and the window is
+/// closed once the answer has arrived.
+#[test]
+fn a_sign_in_opens_the_profiles_window_and_closes_it_when_the_answer_arrives() {
+    use std::sync::Mutex;
+    struct Closes(Arc<Mutex<bool>>);
+    impl Drop for Closes {
+        fn drop(&mut self) {
+            *self.0.lock().unwrap() = true;
+        }
+    }
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    let opened: Arc<Mutex<Vec<(String, usize)>>> = Arc::default();
+    let closed: Arc<Mutex<bool>> = Arc::default();
+    let (o, c) = (opened.clone(), closed.clone());
+    ctx.window = Box::new(move |w: &commands::Opening<'_>| {
+        o.lock()
+            .unwrap()
+            .push((w.profile.to_string(), w.before.len()));
+        browser(w.sign_in.url());
+        Ok(Box::new(Closes(c.clone())) as commands::Window)
+    });
+    ctx.browser = Box::new(|_: &str| panic!("the default browser opens only without the window"));
+    login(&ctx, "adult1");
+    assert_eq!(*opened.lock().unwrap(), [("acct1".to_string(), 0)]);
+    assert!(*closed.lock().unwrap(), "the window outlived the sign-in");
+    assert_eq!(ctx.contexts(&p()).unwrap().len(), 1);
+}
+
+/// mychart 0.4's sign-ins (a Keychain item each, listed in contexts.json)
+/// move into a profile with no request to the organization; a second run
+/// finds nothing left, and the moved sign-in exports.
+#[test]
+fn profiles_migrate_moves_the_sign_ins_mychart_0_4_kept() {
+    use pk_cli_auth::vault::KeyStore;
+    use pk_cli_secrets::Secret;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    let keys = Arc::new(MemoryKeys::new());
+    ctx.vault = Arc::new(pk_cli_auth::vault::Vault::new(
+        keys.clone(),
+        dir.path().join("vault"),
+    ));
+    let legacy = Arc::new(MemoryKeys::new());
+    ctx.legacy = legacy.clone();
+    login(&ctx, "adult1");
+    // Make it 0.4's: the item in the Keychain, the row in contexts.json.
+    let c = ctx.contexts(&p()).unwrap().remove(0);
+    let text = sessions(&ctx).read(&c.account()).unwrap().unwrap();
+    legacy.set(&c.account(), &Secret::new(text)).unwrap();
+    sessions(&ctx).delete(&c.account()).unwrap();
+    ctx.update_profile(&p(), |s| s.remove(&c.organization, &c.id))
+        .unwrap();
+    let index = session::Index::beside(&ctx.store.path().unwrap());
+    index.save(std::slice::from_ref(&c)).unwrap();
+    let hits = mock.get(|st| st.hits.values().sum::<usize>());
+
+    let migrate = |ctx: &Ctx| {
+        commands::profiles::run(
+            ctx,
+            &mychart::cli::ProfilesCmd::Migrate {
+                name: p().to_string(),
+                org: None,
+                patient: vec![],
+            },
+        )
+    };
+    migrate(&ctx).unwrap();
+    assert_eq!(mock.get(|st| st.hits.values().sum::<usize>()), hits);
+    assert!(legacy.get(&c.account()).unwrap().is_none());
+    assert!(!index.path().exists());
+    let moved = ctx.contexts(&p()).unwrap();
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0].id, c.id);
+    assert_eq!(moved[0].label.as_deref(), Some("adult1"));
+
+    migrate(&ctx).unwrap();
+    assert_eq!(ctx.contexts(&p()).unwrap().len(), 1);
+    export_result(&ctx, SELF_PATIENT).unwrap();
+}
+
+/// `profiles remove` asks first (exit 6 when it cannot), then deletes the
+/// profile's sign-ins, its browser profile and the profile.
+#[test]
+fn profiles_remove_takes_the_sign_ins_and_the_browser_profile_with_it() {
+    use std::sync::Mutex;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    // The browser profile a sign-in in acct1 would have left, under the
+    // test's own root: pk-cli-browser removes it there, never the owner's.
+    let root = dir.path().join("data");
+    let kept = root.join("piekstra.mychart").join("browser-profile-acct1");
+    std::fs::create_dir_all(&kept).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    assert!(pk_cli_browser::named_profile_exists_in(&root, "mychart", "acct1").unwrap());
+    let forgot: Arc<Mutex<Vec<String>>> = Arc::default();
+    let (f, r) = (forgot.clone(), root.clone());
+    ctx.forget_browser = Box::new(move |name: &ProfileName| {
+        f.lock().unwrap().push(name.to_string());
+        pk_cli_browser::forget_named_profile_in(&r, "mychart", name.as_str())
+            .map_err(CliError::from)
+    });
+    login(&ctx, "adult1");
+    let account = ctx.contexts(&p()).unwrap()[0].account();
+    let remove = |force| mychart::cli::ProfilesCmd::Remove {
+        name: p().to_string(),
+        force,
+    };
+    let e = commands::profiles::run(&ctx, &remove(false)).unwrap_err();
+    assert_eq!(e.exit_code(), 6, "{e}");
+    assert!(sessions(&ctx).load(&account).unwrap().is_some());
+
+    assert!(
+        kept.exists(),
+        "a refused removal removed the browser profile"
+    );
+    commands::profiles::run(&ctx, &remove(true)).unwrap();
+    assert!(sessions(&ctx).load(&account).unwrap().is_none());
+    assert_eq!(*forgot.lock().unwrap(), ["acct1"]);
+    assert!(!kept.exists());
+    assert!(!ctx.config().unwrap().profiles.contains(&p()));
+    let e = commands::profiles::run(&ctx, &remove(true)).unwrap_err();
+    assert_eq!(e.exit_code(), 4, "{e}");
+}
+
+/// A profile is one login: rows of 0.4's index from two logins are refused
+/// before any Keychain read, `--org` moves one login's, and the other's stay
+/// in `contexts.json` for its own profile, which empties it.
+#[test]
+fn profiles_migrate_moves_one_login_and_leaves_the_others() {
+    use pk_cli_auth::vault::KeyStore;
+    use pk_cli_secrets::Secret;
+    let mock = MockEpic::start();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ctx(dir.path(), &mock, |_| {});
+    let keys = Arc::new(MemoryKeys::new());
+    ctx.vault = Arc::new(pk_cli_auth::vault::Vault::new(
+        keys.clone(),
+        dir.path().join("vault"),
+    ));
+    let legacy = Arc::new(MemoryKeys::new());
+    ctx.legacy = legacy.clone();
+    login(&ctx, "adult1");
+    let a = ctx.contexts(&p()).unwrap().remove(0);
+    let text = sessions(&ctx).read(&a.account()).unwrap().unwrap();
+    sessions(&ctx).delete(&a.account()).unwrap();
+    ctx.update_profile(&p(), |s| s.remove(&a.organization, &a.id))
+        .unwrap();
+    // Another login, at another organization: invented.
+    let b = session::Context {
+        id: "pb".into(),
+        organization: "9999".into(),
+        organization_name: "Other Health".into(),
+        label: Some("adult2".into()),
+        fhir_user: Some("Patient/pb".into()),
+        ..a.clone()
+    };
+    for c in [&a, &b] {
+        legacy
+            .set(&c.account(), &Secret::new(text.clone()))
+            .unwrap();
+    }
+    let index = session::Index::beside(&ctx.store.path().unwrap());
+    index.save(&[a.clone(), b.clone()]).unwrap();
+    let migrate = |name: &str, org: Option<&str>, patient: &[&str]| {
+        commands::profiles::run(
+            &ctx,
+            &mychart::cli::ProfilesCmd::Migrate {
+                name: name.into(),
+                org: org.map(str::to_string),
+                patient: patient.iter().map(|p| p.to_string()).collect(),
+            },
+        )
+    };
+
+    let key_reads = keys.reads();
+    let e = migrate("acct1", None, &[]).unwrap_err();
+    assert_eq!(e.exit_code(), 2, "{e}");
+    assert!(e.to_string().contains("2 logins"), "{e}");
+    assert_eq!((legacy.reads(), keys.reads()), (0, key_reads));
+    assert_eq!(index.load().unwrap().len(), 2);
+    assert_eq!(
+        migrate("acct1", None, &["nobody"]).unwrap_err().exit_code(),
+        4
+    );
+    assert_eq!(
+        migrate("acct1", Some("8888"), &[]).unwrap_err().exit_code(),
+        4
+    );
+
+    migrate("acct1", Some(ORG_ID), &[]).unwrap();
+    assert_eq!(ctx.contexts(&p()).unwrap()[0].id, a.id);
+    assert!(legacy.get(&a.account()).unwrap().is_none());
+    assert_eq!(index.load().unwrap(), std::slice::from_ref(&b));
+    assert!(legacy.get(&b.account()).unwrap().is_some());
+
+    migrate("acct2", Some("Other Health"), &["adult2"]).unwrap();
+    let acct2 = ProfileName::parse("acct2").unwrap();
+    assert_eq!(ctx.contexts(&acct2).unwrap()[0].id, "pb");
+    assert_eq!(ctx.contexts(&p()).unwrap().len(), 1);
+    assert!(!index.path().exists());
 }

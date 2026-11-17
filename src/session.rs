@@ -1,15 +1,18 @@
-//! The patient contexts this install holds: one Keychain item per
-//! (organization, patient) holding its `pk_med_smart::SmartSession`, and a
-//! non-secret index beside the config listing them, so `patients list`
-//! reads no Keychain item. [`Live`] is a signed-in context's token for a run
-//! of requests, renewed through pk-med-smart's `Renewer` under the
-//! family's refresh lock.
+//! The patient contexts this install holds, per profile: each profile's
+//! settings in the config list its contexts ([`ProfileSettings`]), so
+//! `patients list` reads no secret, and the CLI's vault keeps one
+//! `pk_med_smart::SmartSession` per (profile, organization, patient).
+//! [`Live`] is a signed-in context's token for a run of requests, renewed
+//! through pk-med-smart's `Renewer` under the family's refresh lock.
+//! [`Index`] is where mychart 0.4 and earlier listed contexts, read only to
+//! move them into a profile (`mychart profiles migrate`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use pk_cli_auth::oauth::{ClientAuth, OAuthClient};
 use pk_cli_auth::refresh_lock::RefreshLock;
+use pk_cli_config::profile::ProfileName;
 use pk_cli_core::transport::Transport;
 use pk_cli_core::{CliError, Reason};
 use pk_cli_secrets::Secret;
@@ -17,7 +20,7 @@ use pk_med_smart::{DynamicClient, JwtSigner, Renewer, RsaKey, SessionStore, Smar
 use serde::{Deserialize, Serialize};
 
 use crate::epic::EpicQuirks;
-use crate::vault::{Sessions, Vault};
+use crate::vault::Sessions;
 
 pub use pk_med_smart::account;
 
@@ -60,6 +63,28 @@ pub struct Context {
     pub fhir_user: Option<String>,
     /// RFC 3339.
     pub signed_in_at: String,
+}
+
+/// A profile's settings in the config: the patient contexts its MyChart
+/// account signed in.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProfileSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<Context>,
+}
+
+impl ProfileSettings {
+    /// Insert or replace the context for the same (organization, patient).
+    pub fn upsert(&mut self, ctx: Context) {
+        self.contexts
+            .retain(|c| !(c.organization == ctx.organization && c.id == ctx.id));
+        self.contexts.push(ctx);
+    }
+
+    pub fn remove(&mut self, organization: &str, patient: &str) {
+        self.contexts
+            .retain(|c| !(c.organization == organization && c.id == patient));
+    }
 }
 
 impl Context {
@@ -108,7 +133,9 @@ struct IndexFile {
     contexts: Vec<Context>,
 }
 
-/// The index file, `contexts.json` beside the config file.
+/// mychart 0.4's index file, `contexts.json` beside the config file: the
+/// contexts signed in before profiles, whose sessions are Keychain items
+/// `smart/<org>/<patient>`. `profiles migrate` moves both into a profile.
 pub struct Index {
     path: PathBuf,
 }
@@ -172,6 +199,7 @@ impl Index {
 /// unique part of the label (`pk_cli_core::resolve::pick`); `--org`
 /// narrows first.
 pub fn pick<'a>(
+    profile: &ProfileName,
     contexts: &'a [Context],
     patient: Option<&str>,
     org: Option<&str>,
@@ -186,7 +214,9 @@ pub fn pick<'a>(
         } else {
             format!("no patient is signed in at {}", org.unwrap_or_default())
         })
-        .with_remedy("run `mychart auth login --org <ORG> --label <WHO>`"));
+        .with_remedy(format!(
+            "run `mychart auth login --profile {profile} --org <ORG> --label <WHO>`"
+        )));
     }
     match patient {
         None if narrowed.len() == 1 => Ok(narrowed[0]),
@@ -227,10 +257,11 @@ fn unix_now() -> u64 {
     now().max(0) as u64
 }
 
-/// `mychart auth login --org <ORG> [--label <WHO>]` for this context.
-pub fn login_command(ctx: &Context) -> String {
+/// `mychart auth login --profile <NAME> --org <ORG> [--label <WHO>]` for
+/// this context.
+pub fn login_command(profile: &ProfileName, ctx: &Context) -> String {
     format!(
-        "mychart auth login --org {}{}",
+        "mychart auth login --profile {profile} --org {}{}",
         ctx.organization,
         ctx.label
             .as_ref()
@@ -239,8 +270,8 @@ pub fn login_command(ctx: &Context) -> String {
     )
 }
 
-/// The stored session for `ctx`, or exit 3 when the Keychain holds none.
-pub fn load(sessions: &dyn SessionStore, ctx: &Context) -> Result<SmartSession, CliError> {
+/// The stored session for `ctx`, or exit 3 when the vault holds none.
+pub fn load(sessions: &Sessions, ctx: &Context) -> Result<SmartSession, CliError> {
     let stored = sessions.load(&ctx.account()).map_err(|e| {
         if e.reason() == Some(Reason::CredentialUnreadable)
             && e.remedy() != Some(crate::vault::UPDATE_REMEDY)
@@ -250,7 +281,7 @@ pub fn load(sessions: &dyn SessionStore, ctx: &Context) -> Result<SmartSession, 
                 .with_remedy(format!(
                     "sign in again: `{}` (it replaces the stored item; a sign-in mychart 0.1 \
                      stored does not read in 0.2)",
-                    login_command(ctx)
+                    login_command(sessions.profile(), ctx)
                 ))
         } else {
             e
@@ -263,7 +294,7 @@ pub fn load(sessions: &dyn SessionStore, ctx: &Context) -> Result<SmartSession, 
             ctx.organization_name
         ))
         .because(Reason::NoCredential)
-        .with_remedy(format!("run `{}`", login_command(ctx)))
+        .with_remedy(format!("run `{}`", login_command(sessions.profile(), ctx)))
     })
 }
 
@@ -280,31 +311,31 @@ pub fn usable(s: &SmartSession, now: i64) -> bool {
 
 /// "Access ... has ended" for a refusal, with the command that signs in
 /// again.
-fn ended(ctx: &Context, why: &str) -> CliError {
+fn ended(profile: &ProfileName, ctx: &Context, why: &str) -> CliError {
     CliError::Auth(format!(
         "access for patient {} at {} has ended ({why})",
         ctx.display(),
         ctx.organization_name
     ))
     .because(Reason::CredentialRefused)
-    .with_remedy(format!("sign in again: `{}`", login_command(ctx)))
+    .with_remedy(format!("sign in again: `{}`", login_command(profile, ctx)))
 }
 
 /// A renewal's refusal, said for this context, and pk-med-smart's generic
 /// "sign in" remedies given as this context's command. Other errors pass
 /// through.
-fn explain(ctx: &Context, e: CliError) -> CliError {
+fn explain(profile: &ProfileName, ctx: &Context, e: CliError) -> CliError {
     use pk_med_smart::remedy;
     if e.is_auth() && e.reason() == Some(Reason::CredentialRefused) {
-        return ended(ctx, e.message());
+        return ended(profile, ctx, e.message());
     }
     match e.remedy() {
         Some(remedy::SIGN_IN) => {
-            let command = format!("run `{}`", login_command(ctx));
+            let command = format!("run `{}`", login_command(profile, ctx));
             e.with_remedy(command)
         }
         Some(remedy::SIGN_IN_AGAIN) => {
-            let command = format!("sign in again: `{}`", login_command(ctx));
+            let command = format!("sign in again: `{}`", login_command(profile, ctx));
             e.with_remedy(command)
         }
         _ => e,
@@ -359,12 +390,11 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
     /// is where a renewal after a 401 is reported, so it is never silent.
     pub fn start(
         t: &T,
-        vault: Arc<dyn Vault>,
+        sessions: Sessions,
         lock: &RefreshLock,
         context: &Context,
         note: Option<Note>,
     ) -> Result<Self, CliError> {
-        let sessions = Sessions::new(vault);
         let stored = load(&sessions, context)?;
         if crate::fhir::origin(&stored.fhir_base) != crate::fhir::origin(&context.fhir_base) {
             return Err(CliError::Auth(format!(
@@ -373,7 +403,10 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
                 crate::fhir::origin(&stored.fhir_base).unwrap_or_default(),
                 crate::fhir::origin(&context.fhir_base).unwrap_or_default()
             ))
-            .with_remedy(format!("sign in again: `{}`", login_command(context))));
+            .with_remedy(format!(
+                "sign in again: `{}`",
+                login_command(sessions.profile(), context)
+            )));
         }
         let live = Live {
             inner: Arc::new(Inner {
@@ -427,12 +460,17 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
         f(&renewer)
     }
 
+    /// [`explain`] for this run's profile and context.
+    fn explain(&self, e: CliError) -> CliError {
+        explain(self.inner.sessions.profile(), &self.inner.context, e)
+    }
+
     /// The stored session with a usable token, renewed first when it is due
     /// or was refused.
     pub fn fresh(&self) -> Result<SmartSession, CliError> {
         let account = self.inner.context.account();
         self.with_renewer(|r| r.fresh(&account, unix_now()))
-            .map_err(|e| explain(&self.inner.context, e))
+            .map_err(|e| self.explain(e))
     }
 
     /// A new token after the organization answered 401 to `refused`, under
@@ -446,7 +484,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
         let account = self.inner.context.account();
         let renewed = self
             .with_renewer(|r| r.after_refusal(&account, refused, unix_now()))
-            .map_err(|e| explain(&self.inner.context, e))?;
+            .map_err(|e| self.explain(e))?;
         put(
             &self.inner.reissued,
             Some(renewed.tokens.access_token.clone()),
@@ -500,6 +538,7 @@ impl<T: Transport + Clone + Send + Sync + 'static> Live<T> {
         );
         match marked {
             Ok(s) if s.tokens.access_token == token => ended(
+                inner.sessions.profile(),
                 ctx,
                 &format!(
                     "the organization refused it on {}",
@@ -535,24 +574,31 @@ mod tests {
         }
     }
 
+    fn acct1() -> ProfileName {
+        ProfileName::parse("acct1").unwrap()
+    }
+
     /// pk-med-smart's generic remedies become this context's command; a
     /// refusal is said for the context; other remedies stay.
     #[test]
     fn a_generic_sign_in_remedy_names_this_contexts_command() {
         use pk_med_smart::remedy;
         let c = ctx("p1", "org-a", Some("adult1"));
-        let login = "`mychart auth login --org org-a --label adult1`";
+        let login = "`mychart auth login --profile acct1 --org org-a --label adult1`";
         let e = explain(
+            &acct1(),
             &c,
             CliError::Auth("not signed in".into()).with_remedy(remedy::SIGN_IN),
         );
         assert_eq!(e.remedy(), Some(format!("run {login}").as_str()));
         let e = explain(
+            &acct1(),
             &c,
             CliError::Auth("lapsed".into()).with_remedy(remedy::SIGN_IN_AGAIN),
         );
         assert_eq!(e.remedy(), Some(format!("sign in again: {login}").as_str()));
         let e = explain(
+            &acct1(),
             &c,
             CliError::Auth("refused".into())
                 .because(Reason::CredentialRefused)
@@ -561,6 +607,7 @@ mod tests {
         assert!(e.to_string().contains("has ended"), "{e}");
         assert_eq!(e.remedy(), Some(format!("sign in again: {login}").as_str()));
         let e = explain(
+            &acct1(),
             &c,
             CliError::Upstream("busy".into()).with_remedy(remedy::TRY_AGAIN),
         );
@@ -570,8 +617,8 @@ mod tests {
     #[test]
     fn one_held_context_needs_no_patient_flag() {
         let held = vec![ctx("p1", "org-a", Some("adult1"))];
-        assert_eq!(pick(&held, None, None).unwrap().id, "p1");
-        assert_eq!(pick(&[], None, None).unwrap_err().exit_code(), 3);
+        assert_eq!(pick(&acct1(), &held, None, None).unwrap().id, "p1");
+        assert_eq!(pick(&acct1(), &[], None, None).unwrap_err().exit_code(), 3);
     }
 
     #[test]
@@ -581,16 +628,34 @@ mod tests {
             ctx("p2", "org-a", Some("child1")),
             ctx("p3", "org-b", Some("adult1")),
         ];
-        assert_eq!(pick(&held, None, None).unwrap_err().exit_code(), 2);
-        assert_eq!(pick(&held, Some("child1"), None).unwrap().id, "p2");
-        assert_eq!(pick(&held, Some("p3"), None).unwrap().id, "p3");
+        assert_eq!(
+            pick(&acct1(), &held, None, None).unwrap_err().exit_code(),
+            2
+        );
+        assert_eq!(
+            pick(&acct1(), &held, Some("child1"), None).unwrap().id,
+            "p2"
+        );
+        assert_eq!(pick(&acct1(), &held, Some("p3"), None).unwrap().id, "p3");
         // Two contexts share the label: ambiguous until --org narrows it.
         assert_eq!(
-            pick(&held, Some("adult1"), None).unwrap_err().exit_code(),
+            pick(&acct1(), &held, Some("adult1"), None)
+                .unwrap_err()
+                .exit_code(),
             4
         );
-        assert_eq!(pick(&held, Some("adult1"), Some("org-b")).unwrap().id, "p3");
-        assert_eq!(pick(&held, None, Some("org-c")).unwrap_err().exit_code(), 3);
+        assert_eq!(
+            pick(&acct1(), &held, Some("adult1"), Some("org-b"))
+                .unwrap()
+                .id,
+            "p3"
+        );
+        assert_eq!(
+            pick(&acct1(), &held, None, Some("org-c"))
+                .unwrap_err()
+                .exit_code(),
+            3
+        );
     }
 
     #[test]

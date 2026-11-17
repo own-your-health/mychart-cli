@@ -23,10 +23,14 @@ fn main() {
          export MYCHART_BROWSER='curl -s -o /dev/null -L'\n  \
          mychart config set directory_url {}\n  \
          mychart config set client_id {}\n  \
+         mychart profiles add mock\n  \
+         export MYCHART_PROFILE=mock\n  \
          mychart auth login --org {} --label adult1\n  \
          mychart records export --patient adult1 --ndjson | head -c 400\n\n\
-         The stand-in browser (curl) follows the sign-in redirect; `--child` signs in a child\n\
-         through proxy access instead. Ctrl-C stops the mock.",
+         `auth login` opens the profile's Chrome window, where the mock's sign-in redirects\n\
+         straight back; where Chrome cannot open, the stand-in browser (curl) follows the\n\
+         redirect instead. `--child` signs in a child through proxy access instead. Ctrl-C\n\
+         stops the mock.",
         mock_epic::ORG_ID,
         mock_epic::ORG_NAME,
         mock.origin(),

@@ -197,9 +197,9 @@ pub fn list(
     who: &PatientArgs,
     range: &pk_cli_documents::RangeArgs,
 ) -> Result<Found, CliError> {
-    let c = ctx.signed_in(who)?;
+    let (p, c) = ctx.signed_in(who)?;
     let t = transport()?;
-    let live = ctx.live(&t, &c)?;
+    let live = ctx.live(&t, &p, &c)?;
     let fhir = Fhir::new(&t, &live)?;
     list_in(ctx, &fhir, &c.id, range)
 }
@@ -308,9 +308,9 @@ fn target(output: &Path, d: &Listed) -> PathBuf {
 
 fn download_one(ctx: &Ctx, who: &PatientArgs, id: &str, output: &Path) -> Result<(), CliError> {
     let id = id.strip_suffix("#1").unwrap_or(id);
-    let c = ctx.signed_in(who)?;
+    let (p, c) = ctx.signed_in(who)?;
     let t = transport()?;
-    let live = ctx.live(&t, &c)?;
+    let live = ctx.live(&t, &p, &c)?;
     let fhir = Fhir::new(&t, &live)?;
     let docs = list_in(ctx, &fhir, &c.id, &pk_cli_documents::RangeArgs::default())?.documents;
     let Some(d) = docs.iter().find(|d| d.document.id == id) else {
@@ -340,9 +340,9 @@ fn download_all(
             dir.display()
         )));
     }
-    let c = ctx.signed_in(who)?;
+    let (p, c) = ctx.signed_in(who)?;
     let t = transport()?;
-    let live = ctx.live(&t, &c)?;
+    let live = ctx.live(&t, &p, &c)?;
     let fhir = Fhir::new(&t, &live)?;
     let found = list_in(ctx, &fhir, &c.id, range)?;
     let docs = found.documents;

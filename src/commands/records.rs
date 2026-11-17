@@ -63,7 +63,7 @@ pub fn header(c: &Context, since: Option<&str>) -> Header {
 
 fn export_cmd(ctx: &Ctx, args: &ExportArgs) -> Result<(), CliError> {
     validate(args, ctx.json())?;
-    let c = ctx.signed_in(&args.who)?;
+    let (p, c) = ctx.signed_in(&args.who)?;
     if args.output.is_some() && !synthetic(&c) {
         return Err(CliError::Usage(format!(
             "-o writes records to a plain file, so it is for Epic's sandbox and test servers only; \
@@ -81,7 +81,7 @@ fn export_cmd(ctx: &Ctx, args: &ExportArgs) -> Result<(), CliError> {
         .map(pk_med_records::create_export_file)
         .transpose()?;
     let t = transport()?;
-    let live = ctx.live(&t, &c)?;
+    let live = ctx.live(&t, &p, &c)?;
     let fhir = Fhir::new(&t, &live)?;
     let since = args.since.as_deref();
     let mut head = header(&c, since);
