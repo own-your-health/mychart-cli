@@ -223,7 +223,7 @@ pub struct PatientArgs {
 pub enum RecordsCmd {
     /// Every resource the organization serves for the patient, documents
     /// included, as records-stream/v1 (what `medrec import --from mychart`
-    /// reads).
+    /// runs and reads).
     Export(ExportArgs),
 }
 

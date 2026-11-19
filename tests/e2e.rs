@@ -682,7 +682,12 @@ fn export_to_a_file_is_for_synthetic_servers_only() {
     )
     .unwrap_err();
     assert_eq!(e.exit_code(), 2);
-    assert!(format!("{e:?}").contains("medrec import"), "{e:?}");
+    // The remedy is medrec's own import, which runs the export.
+    assert!(
+        format!("{e:?}")
+            .contains("import --from mychart --from-profile acct1 --org 1000-1 --patient adult9"),
+        "{e:?}"
+    );
     assert!(!dir.path().join("x").exists());
 }
 

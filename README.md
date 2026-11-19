@@ -13,7 +13,8 @@ mychart profiles add adult1-org                    # one per MyChart account at 
 export MYCHART_PROFILE=adult1-org                  # or --profile adult1-org on each command
 mychart auth login --org <ID> --label adult1       # sign in in the profile's Chrome window
 mychart patients list
-mychart records export --patient adult1 --ndjson | medrec import --from mychart
+medrec --profile <FOLDER> import --from mychart --from-profile adult1-org --org <ID> --patient adult1   # runs the export
+mychart records export --patient adult1 --ndjson    # the records-stream/v1 stream medrec reads
 mychart documents list --patient adult1
 mychart documents download <ID> -o note.html --patient adult1
 mychart api GET Patient/<id> --patient adult1
