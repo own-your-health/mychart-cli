@@ -633,8 +633,10 @@ those bases authorize at 226 and 326. mychart uses Brands.
   window opens the sign-in's address alone. mychart 0.5.0 and 0.5.1 opened
   kp.org's sign-in (`https://healthy.kaiserpermanente.org/sign-on`) in a tab
   before it, from the earlier reading that the Start page needs a kp.org
-  session; that tab reached the same `identityauth` sign-in, a second copy
-  of it, and 0.5.2 dropped it. The profile's Chrome profile keeps Kaiser's
+  session. That tab reached kp.org's own sign-in on the same host
+  (`identityauth.kaiserpermanente.org/as/authorization.oauth2`, also "Sign
+  in | Kaiser Permanente"), so the window showed two sign-in pages, and
+  0.5.2 dropped it. The profile's Chrome profile keeps Kaiser's
   sign-in cookies either way. The MyChart login page
   `/fhirnw/Authentication/Login` answers 410 Gone when opened on its own
   (2026-11-17) and forwards to the SAML sign-in from inside the chain above:
