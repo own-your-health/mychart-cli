@@ -41,7 +41,7 @@ fn validate(args: &ExportArgs, json: bool) -> Result<(), CliError> {
     }
     if !args.ndjson && args.output.is_none() {
         return Err(CliError::Usage(
-            "say where the records go: --ndjson for stdout (`| medrec import --from mychart`) or -o <DIR>".into(),
+            "say where the records go: --ndjson for stdout or -o <DIR>; `medrec import --from mychart --from-profile <NAME>` runs this export itself".into(),
         ));
     }
     Ok(())
@@ -71,7 +71,12 @@ fn export_cmd(ctx: &Ctx, args: &ExportArgs) -> Result<(), CliError> {
             c.display(),
             c.organization_name
         ))
-        .with_remedy(format!("pipe them into the encrypted vault: `{BIN} records export --patient {} --ndjson | medrec import --from mychart`", c.display())));
+        .with_remedy(format!(
+            "import them into medrec's records folder, which runs this export itself: \
+             `medrec --profile <FOLDER> import --from {BIN} --from-profile {p} --org {} --patient {}`",
+            c.organization,
+            c.display()
+        )));
     }
     // Before the Keychain and the network: a symbolic link at
     // records.ndjson is refused here (exit 2).
