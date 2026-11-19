@@ -54,7 +54,9 @@ on this repository. Please do not open a public issue.
   a symbolic link at `records.ndjson` is refused (exit 2).
 - **Renewals** are serialized across processes by a refresh lock under
   `~/.config/mychart/`, so two processes never renew one sign-in at once.
-- **Records** go to stdout (`--ndjson`) or, for Epic's sandbox and local
-  test servers only, to a `0600` file. Saved documents are `0600`.
+- **Records** go to stdout (`--ndjson`), which `medrec import --from
+  mychart` runs and reads into its encrypted records folder, or, for Epic's
+  sandbox and local test servers only, to a `0600` file. Saved documents are
+  `0600`.
 
 `mychart` is read-only: it makes no request that changes a record.
