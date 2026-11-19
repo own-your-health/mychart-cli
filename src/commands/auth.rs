@@ -230,7 +230,13 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
             quirks: &quirks,
         },
     )?;
-    let url = signin.url().to_string();
+    let url = epic::address_to_open(&config.authorization_endpoint, signin.url(), |u| {
+        let resp = block_on(t.send(HttpRequest::get(u.to_string()))).ok()?;
+        Some((
+            resp.status,
+            resp.header_value("location").map(str::to_string),
+        ))
+    });
     let before = epic::pages_before(&config.authorization_endpoint);
     // The profile's own Chrome window, so one login's cookies never sign
     // in another; kept open until the answer arrives.
@@ -239,7 +245,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     if !args.no_browser {
         match (ctx.window)(&Opening {
             profile: &profile,
-            sign_in: &signin,
+            address: &url,
             before,
         }) {
             Ok(w) => {

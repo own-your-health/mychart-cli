@@ -600,19 +600,37 @@ those bases authorize at 226 and 326. mychart uses Brands.
   `permission-v1` and `-v2`, PKCE `S256`, and the `jwt-bearer` grant. The
   CapabilityStatement's `implementation.url` is the `KPPolarisPortal` path,
   not the base; requests and `aud` use the directory's base.
-- **Sign-in.** At Northwest (132) the authorize endpoint answers a 302 to
-  `healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start`, which
-  answers 500 without a kp.org session, and the MyChart login page beside
-  it (`/fhirnw/Authentication/Login`) answers 410 Gone (2026-11-17): Kaiser
+- **Sign-in: Kaiser's Start page fails in its own capitals.** At Northwest
+  (132) the authorize endpoint answers a 302 to
+  `https://healthy.kaiserpermanente.org:443/fhirnw/Authentication/OAuth/Start?<the
+  authorize parameters>`. Kaiser's front end answers that path 500, "Kaiser
+  Permanente - Page Not Found", with or without parameters and with or
+  without a kp.org session (2026-11-19). The same path in lowercase,
+  `/fhirnw/authentication/oauth/start` with the same query, reaches Epic:
+  302 to `/fhirnw/Home/Logout`, the first step of Epic's sign-in, as in the
+  sandbox. A developer of another patient app reports the same for every
+  region whose authorize endpoint sends the browser there (all but
+  Washington), with real sign-ins completed through the lowercase path in
+  Northern and Southern California
+  (<https://github.com/EnriqueNeyra/syntropy-health/pull/22>, 2026-10-03).
+  So where the authorization endpoint is on `fhir.kp.org`, `auth login`
+  sends the authorize request itself first, its redirect not followed, as
+  `auth probe` does (no `code` is issued without a session). When the
+  answer is that Start page and the page as it is still answers 500, the
+  window opens the lowercase address instead of the authorize address
+  (`epic::address_to_open`). Any other answer, a failed request, or a fixed
+  page opens the authorize address as before. The window still opens
+  kp.org's sign-in (`https://healthy.kaiserpermanente.org/sign-on`) first,
+  and the profile's Chrome profile keeps kp.org's cookies. The MyChart login
+  page `/fhirnw/Authentication/Login` answers 410 Gone (2026-11-17): Kaiser
   members sign in at kp.org ("Since MyChart is already built into kp.org
   and the Kaiser Permanente app, there's no need for you to create a
-  separate MyChart account"). So where the authorization endpoint is on
-  `fhir.kp.org`, `auth login` opens kp.org's sign-in
-  (`https://healthy.kaiserpermanente.org/sign-on`) in the profile's window
-  first, then the authorize address, and the profile's Chrome profile keeps
-  kp.org's cookies for the next sign-in. Washington (439), the former Group
-  Health, has a MyChart login page of its own; whether it needs the kp.org
-  page too is not yet seen.
+  separate MyChart account"). Washington (439), the former Group Health, has
+  a MyChart login page of its own.
+- **Paging links in capitals.** The same report says Kaiser writes its
+  server's name in capitals in `next` links (`FHIR.KP.ORG`) for a base
+  listed as `fhir.kp.org`. mychart and pk-med-fhir compare origins with the
+  scheme and host lowercased, so those links are followed.
 - **Northwest and Washington are two organizations.** Northwest covers Oregon
   and SW Washington; Washington is the former Group Health. A person with
   records in both signs in to each.

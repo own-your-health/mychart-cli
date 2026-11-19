@@ -21,7 +21,6 @@ use pk_cli_config::ConfigStore;
 use pk_cli_core::{CliError, CommonArgs};
 use pk_cli_http::BlockingTransport;
 use pk_cli_secrets::CredentialStore;
-use pk_med_smart::SmartSignIn;
 
 use crate::config::Config;
 use crate::session::{Context, Index, ProfileSettings};
@@ -46,7 +45,9 @@ pub const PROFILE_ENV: &str = "MYCHART_PROFILE";
 /// and the sign-in's address.
 pub struct Opening<'a> {
     pub profile: &'a ProfileName,
-    pub sign_in: &'a SmartSignIn,
+    /// The sign-in's address: its authorize address, or the page that
+    /// stands for it ([`crate::epic::address_to_open`]).
+    pub address: &'a str,
     pub before: &'a [&'a str],
 }
 
@@ -127,7 +128,7 @@ impl Ctx {
                 })
             },
             window: Box::new(|o: &Opening<'_>| {
-                pk_med_smart::SignInWindow::open(BIN, o.profile, o.sign_in, o.before)
+                pk_med_smart::SignInWindow::open_at(BIN, o.profile, o.address, o.before)
                     .map(|w| Box::new(w) as Window)
             }),
             browser: Box::new(crate::browser::open_browser),

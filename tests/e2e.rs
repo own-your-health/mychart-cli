@@ -1746,7 +1746,7 @@ fn a_sign_in_opens_the_profiles_window_and_closes_it_when_the_answer_arrives() {
         o.lock()
             .unwrap()
             .push((w.profile.to_string(), w.before.len()));
-        browser(w.sign_in.url());
+        browser(w.address);
         Ok(Box::new(Closes(c.clone())) as commands::Window)
     });
     ctx.browser = Box::new(|_: &str| panic!("the default browser opens only without the window"));
