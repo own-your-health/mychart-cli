@@ -41,8 +41,8 @@ pub const KEYCHAIN_SERVICE_ENV: &str = "MYCHART_KEYCHAIN_SERVICE";
 pub const PROFILE_ENV: &str = "MYCHART_PROFILE";
 
 /// What a sign-in's window opens: the profile's own browser profile, the
-/// pages it needs first (a kp.org session for Kaiser Permanente's Epic),
-/// and the sign-in's address.
+/// pages it opens first (kp.org's sign-in at Kaiser Permanente), and the
+/// sign-in's address.
 pub struct Opening<'a> {
     pub profile: &'a ProfileName,
     /// The sign-in's address: its authorize address, or the page that

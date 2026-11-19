@@ -616,10 +616,14 @@ those bases authorize at 226 and 326. mychart uses Brands.
   So where the authorization endpoint is on `fhir.kp.org`, `auth login`
   sends the authorize request itself first, its redirect not followed, as
   `auth probe` does (no `code` is issued without a session). When the
-  answer is that Start page and the page as it is still answers 500, the
-  window opens the lowercase address instead of the authorize address
-  (`epic::address_to_open`). Any other answer, a failed request, or a fixed
-  page opens the authorize address as before. The window still opens
+  answer is that Start page and the page as it is, without its query,
+  still fails, the window opens the lowercase address instead of the
+  authorize address (`epic::address_to_open`). The page counts as fixed
+  only when it answers below 400, so a 403 or 429 is not taken for a fix.
+  Any other answer, a failed authorize request, or a fixed page opens the
+  authorize address as before. Each check waits 5 seconds at most, and
+  `auth login` says on stderr that it is checking and when it opens the
+  lowercase address. The window still opens
   kp.org's sign-in (`https://healthy.kaiserpermanente.org/sign-on`) first,
   and the profile's Chrome profile keeps kp.org's cookies. The MyChart login
   page `/fhirnw/Authentication/Login` answers 410 Gone (2026-11-17): Kaiser

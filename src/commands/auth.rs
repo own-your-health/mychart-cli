@@ -109,6 +109,10 @@ fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+/// How long each of `auth login`'s two checks of Kaiser Permanente's Start
+/// page waits ([`epic::address_to_open`]).
+const KP_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// `auth probe`: what the organization's authorize endpoint answers this
 /// app's client id and redirect, from one GET with the parameters `auth
 /// login` sends. Nothing listens, no browser opens, the Keychain is not
@@ -230,13 +234,35 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
             quirks: &quirks,
         },
     )?;
-    let url = epic::address_to_open(&config.authorization_endpoint, signin.url(), |u| {
-        let resp = block_on(t.send(HttpRequest::get(u.to_string()))).ok()?;
-        Some((
-            resp.status,
-            resp.header_value("location").map(str::to_string),
-        ))
-    });
+    let url = if epic::is_kaiser(&config.authorization_endpoint) {
+        ctx.note("checking Kaiser Permanente's sign-in page (docs/api.md, Kaiser Permanente)");
+        // Advisory: a slow answer falls back as a failed one does, so these
+        // two requests wait seconds, not the OAuth transport's minute.
+        let quick = pk_cli_http::BlockingTransport::with_client(
+            reqwest::blocking::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(KP_CHECK_TIMEOUT)
+                .build()
+                .map_err(|e| CliError::Other(format!("building an HTTP client: {e}")))?,
+        );
+        let url = epic::address_to_open(&config.authorization_endpoint, signin.url(), |u| {
+            let request = HttpRequest::get(u.to_string()).user_agent(BIN, version);
+            let resp = block_on(quick.send(request)).ok()?;
+            Some((
+                resp.status,
+                resp.header_value("location").map(str::to_string),
+            ))
+        });
+        if url != signin.url() {
+            ctx.note(
+                "Kaiser Permanente's Start page answers \"Page Not Found\"; opening it in \
+                 lowercase instead (docs/api.md, Kaiser Permanente)",
+            );
+        }
+        url
+    } else {
+        signin.url().to_string()
+    };
     let before = epic::pages_before(&config.authorization_endpoint);
     // The profile's own Chrome window, so one login's cookies never sign
     // in another; kept open until the answer arrives.

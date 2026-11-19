@@ -115,10 +115,12 @@ pub fn relationship(fhir_user: Option<&str>, patient: &str) -> Option<&'static s
     })
 }
 
-/// Kaiser Permanente's sign-in page. Its Epic organizations' MyChart
-/// (`/fhir…/Authentication/OAuth/Start` on healthy.kaiserpermanente.org)
-/// answers the authorize request only inside a kp.org session, and 500
-/// without one (docs/api.md, Kaiser Permanente).
+/// Kaiser Permanente's sign-in page, which a sign-in's window opens first
+/// at Kaiser's Epic organizations, so the profile's browser keeps kp.org's
+/// session. Their MyChart page (`/<region>/Authentication/OAuth/Start`)
+/// answers 500 in its own capitals with or without that session;
+/// [`address_to_open`] opens it in lowercase instead (docs/api.md, Kaiser
+/// Permanente).
 pub const KP_SIGN_ON: &str = "https://healthy.kaiserpermanente.org/sign-on";
 
 /// The pages a sign-in's window opens before the authorize address:
@@ -180,8 +182,10 @@ pub fn kaiser_start(location: &str) -> Option<(String, String)> {
 /// sends one GET without following its redirect and answers its status and
 /// `Location`, or `None` when the request failed: one for `authorize`, as
 /// `auth probe` sends it (no `code` is issued without a session), and one
-/// for the Start page without its query. Any other answer, and any failure
-/// before the Start page is known, opens `authorize` as it is.
+/// for the Start page without its query. The page counts as fixed only when
+/// it answers below 400, so a refusal such as 403 or 429 is not mistaken
+/// for a fix. Any other answer, and any failure before the Start page is
+/// known, opens `authorize` as it is.
 pub fn address_to_open(
     authorization_endpoint: &str,
     authorize: &str,
@@ -202,7 +206,7 @@ pub fn address_to_open(
     };
     match get(&page) {
         // Fixed: the page answers as it is.
-        Some((status, _)) if status < 500 => authorize.to_string(),
+        Some((status, _)) if status < 400 => authorize.to_string(),
         _ => lower,
     }
 }
@@ -301,10 +305,19 @@ mod tests {
         // The page cannot be checked: lowercase still works.
         assert_eq!(answers(Some((302, Some(START.into()))), None), lower);
         // Kaiser fixed the page.
-        assert_eq!(
-            answers(Some((302, Some(START.into()))), Some((200, None))),
-            AUTHORIZE
-        );
+        for fixed in [200, 302] {
+            assert_eq!(
+                answers(Some((302, Some(START.into()))), Some((fixed, None))),
+                AUTHORIZE
+            );
+        }
+        // A refusal is not a fix.
+        for refused in [403, 429] {
+            assert_eq!(
+                answers(Some((302, Some(START.into()))), Some((refused, None))),
+                lower
+            );
+        }
         // Washington's own MyChart, an error page, no answer.
         let other = "https://mychart.example.org/MyChart/Authentication/OAuth/Start?state=s";
         assert_eq!(answers(Some((302, Some(other.into()))), None), AUTHORIZE);
