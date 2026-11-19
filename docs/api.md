@@ -454,7 +454,11 @@ range requests, so a failed download starts over.
   The app registers them for organizations on an earlier version. In
   the sandbox every search reports its Outside Record sub-resource as not
   authorized, with dynamic registration and without: 27 `forbidden` skips
-  per export of `fhircamila` (2026-11-16).
+  per export of `fhircamila` (2026-11-16). A production organization
+  answers the same way (2026-11-19): 27 `forbidden` skips, each "Client
+  not authorized for <type> - Outside Record…" and each beside the
+  organization's own results of that type, so the export is complete and
+  what other organizations sent comes from signing in to them.
 - **Specimen and Media cannot be searched by patient**: "This API currently
   supports only the _id search parameter. As a result, it functions
   similarly to Specimen.Read (R4). Specimen references can be returned in
