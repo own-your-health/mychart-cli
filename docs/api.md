@@ -623,12 +623,23 @@ those bases authorize at 226 and 326. mychart uses Brands.
   Any other answer, a failed authorize request, or a fixed page opens the
   authorize address as before. Each check waits 5 seconds at most, and
   `auth login` says on stderr that it is checking and when it opens the
-  lowercase address. The window still opens
-  kp.org's sign-in (`https://healthy.kaiserpermanente.org/sign-on`) first,
-  and the profile's Chrome profile keeps kp.org's cookies. The MyChart login
-  page `/fhirnw/Authentication/Login` answers 410 Gone (2026-11-17): Kaiser
-  members sign in at kp.org ("Since MyChart is already built into kp.org
-  and the Kaiser Permanente app, there's no need for you to create a
+  lowercase address.
+- **Kaiser's sign-in comes from the Start page itself.** Followed without
+  cookies (2026-11-19), the lowercase Start page with its query goes
+  through `/fhirnw/Home/Logout`, `/fhirnw/InsideAsp/Mode`,
+  `/fhirnw/Authentication/Login` and `/fhirnw/Authentication/Saml/Login`
+  to Kaiser's own sign-in, `https://identityauth.kaiserpermanente.org/idp/SSO.saml2`
+  ("Sign in | Kaiser Permanente"), which returns to MyChart by SAML. So the
+  window opens the sign-in's address alone. mychart 0.5.0 and 0.5.1 opened
+  kp.org's sign-in (`https://healthy.kaiserpermanente.org/sign-on`) in a tab
+  before it, from the earlier reading that the Start page needs a kp.org
+  session; that tab reached the same `identityauth` sign-in, a second copy
+  of it, and 0.5.2 dropped it. The profile's Chrome profile keeps Kaiser's
+  sign-in cookies either way. The MyChart login page
+  `/fhirnw/Authentication/Login` answers 410 Gone when opened on its own
+  (2026-11-17) and forwards to the SAML sign-in from inside the chain above:
+  Kaiser members sign in at kp.org ("Since MyChart is already built into
+  kp.org and the Kaiser Permanente app, there's no need for you to create a
   separate MyChart account"). Washington (439), the former Group Health, has
   a MyChart login page of its own.
 - **Paging links in capitals.** The same report says Kaiser writes its

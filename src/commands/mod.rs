@@ -40,15 +40,13 @@ pub const KEYCHAIN_SERVICE_ENV: &str = "MYCHART_KEYCHAIN_SERVICE";
 /// The environment's `--profile`.
 pub const PROFILE_ENV: &str = "MYCHART_PROFILE";
 
-/// What a sign-in's window opens: the profile's own browser profile, the
-/// pages it opens first (kp.org's sign-in at Kaiser Permanente), and the
-/// sign-in's address.
+/// What a sign-in's window opens: the sign-in's address, in the profile's
+/// own browser profile.
 pub struct Opening<'a> {
     pub profile: &'a ProfileName,
     /// The sign-in's address: its authorize address, or the page that
     /// stands for it ([`crate::epic::address_to_open`]).
     pub address: &'a str,
-    pub before: &'a [&'a str],
 }
 
 /// What keeps a sign-in's window open; dropping it closes the window.
@@ -128,7 +126,7 @@ impl Ctx {
                 })
             },
             window: Box::new(|o: &Opening<'_>| {
-                pk_med_smart::SignInWindow::open_at(BIN, o.profile, o.address, o.before)
+                pk_med_smart::SignInWindow::open_at(BIN, o.profile, o.address, &[])
                     .map(|w| Box::new(w) as Window)
             }),
             browser: Box::new(crate::browser::open_browser),

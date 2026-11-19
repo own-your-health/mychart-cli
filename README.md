@@ -136,9 +136,7 @@ migrate <NAME>`: no network, no new approval in MyChart.
 ## Kaiser Permanente
 
 Kaiser's regions are Epic organizations in the directory:
-`mychart orgs search kaiser`. At those organizations the window opens
-kp.org's sign-in first, and the profile's Chrome profile keeps that session.
-Kaiser's front end cannot serve the MyChart page its authorize endpoint
+`mychart orgs search kaiser`. Kaiser's front end cannot serve the MyChart page its authorize endpoint
 sends the browser to (`/<region>/Authentication/OAuth/Start` answers "Page
 Not Found"), so while it fails, mychart opens the same page in lowercase,
 which works ([docs/api.md](docs/api.md#kaiser-permanente)).

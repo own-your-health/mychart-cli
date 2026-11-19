@@ -263,7 +263,6 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     } else {
         signin.url().to_string()
     };
-    let before = epic::pages_before(&config.authorization_endpoint);
     // The profile's own Chrome window, so one login's cookies never sign
     // in another; kept open until the answer arrives.
     let mut window = None;
@@ -272,7 +271,6 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
         match (ctx.window)(&Opening {
             profile: &profile,
             address: &url,
-            before,
         }) {
             Ok(w) => {
                 window = Some(w);
@@ -284,9 +282,6 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
                      whose cookies every profile shares",
                     e.message()
                 ));
-                for page in before {
-                    (ctx.browser)(page);
-                }
                 opened = (ctx.browser)(&url);
             }
         }

@@ -1724,9 +1724,8 @@ fn a_command_without_its_profile_is_refused_before_the_vault_or_the_network() {
     assert_eq!(mock.get(|st| st.hits.values().sum::<usize>()), hits);
 }
 
-/// The sign-in opens in the profile's own window, with no page before it
-/// at an organization that is not Kaiser Permanente's, and the window is
-/// closed once the answer has arrived.
+/// The sign-in opens in the profile's own window at the authorize address,
+/// and the window is closed once the answer has arrived.
 #[test]
 fn a_sign_in_opens_the_profiles_window_and_closes_it_when_the_answer_arrives() {
     use std::sync::Mutex;
@@ -1739,19 +1738,20 @@ fn a_sign_in_opens_the_profiles_window_and_closes_it_when_the_answer_arrives() {
     let mock = MockEpic::start();
     let dir = tempfile::tempdir().unwrap();
     let mut ctx = ctx(dir.path(), &mock, |_| {});
-    let opened: Arc<Mutex<Vec<(String, usize)>>> = Arc::default();
+    let opened: Arc<Mutex<Vec<(String, bool)>>> = Arc::default();
     let closed: Arc<Mutex<bool>> = Arc::default();
     let (o, c) = (opened.clone(), closed.clone());
     ctx.window = Box::new(move |w: &commands::Opening<'_>| {
-        o.lock()
-            .unwrap()
-            .push((w.profile.to_string(), w.before.len()));
+        o.lock().unwrap().push((
+            w.profile.to_string(),
+            w.address.contains("/oauth2/authorize?"),
+        ));
         browser(w.address);
         Ok(Box::new(Closes(c.clone())) as commands::Window)
     });
     ctx.browser = Box::new(|_: &str| panic!("the default browser opens only without the window"));
     login(&ctx, "adult1");
-    assert_eq!(*opened.lock().unwrap(), [("acct1".to_string(), 0)]);
+    assert_eq!(*opened.lock().unwrap(), [("acct1".to_string(), true)]);
     assert!(*closed.lock().unwrap(), "the window outlived the sign-in");
     assert_eq!(ctx.contexts(&p()).unwrap().len(), 1);
 }
