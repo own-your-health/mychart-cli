@@ -115,10 +115,12 @@ pub fn relationship(fhir_user: Option<&str>, patient: &str) -> Option<&'static s
     })
 }
 
-/// Kaiser Permanente's sign-in page. Its Epic organizations' MyChart
-/// (`/fhir…/Authentication/OAuth/Start` on healthy.kaiserpermanente.org)
-/// answers the authorize request only inside a kp.org session, and 500
-/// without one (docs/api.md, Kaiser Permanente).
+/// Kaiser Permanente's sign-in page, which a sign-in's window opens first
+/// at Kaiser's Epic organizations, so the profile's browser keeps kp.org's
+/// session. Their MyChart page (`/<region>/Authentication/OAuth/Start`)
+/// answers 500 in its own capitals with or without that session;
+/// [`address_to_open`] opens it in lowercase instead (docs/api.md, Kaiser
+/// Permanente).
 pub const KP_SIGN_ON: &str = "https://healthy.kaiserpermanente.org/sign-on";
 
 /// The pages a sign-in's window opens before the authorize address:
@@ -126,13 +128,86 @@ pub const KP_SIGN_ON: &str = "https://healthy.kaiserpermanente.org/sign-on";
 /// (`fhir.kp.org`), none elsewhere. The profile's browser keeps kp.org's
 /// cookies, so a later sign-in may find that session still open.
 pub fn pages_before(authorization_endpoint: &str) -> &'static [&'static str] {
-    let host = reqwest::Url::parse(authorization_endpoint)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_ascii_lowercase));
-    if host.as_deref() == Some("fhir.kp.org") {
+    if is_kaiser(authorization_endpoint) {
         &[KP_SIGN_ON]
     } else {
         &[]
+    }
+}
+
+/// Whether an authorize endpoint is Kaiser Permanente's (`fhir.kp.org`).
+pub fn is_kaiser(authorization_endpoint: &str) -> bool {
+    reqwest::Url::parse(authorization_endpoint)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .as_deref()
+        == Some("fhir.kp.org")
+}
+
+/// The host of Kaiser Permanente's MyChart pages.
+const KP_PAGES: &str = "healthy.kaiserpermanente.org";
+
+/// The path, after the region, of the page Kaiser Permanente's authorize
+/// endpoint sends the browser to.
+const KP_START: &str = "/Authentication/OAuth/Start";
+
+/// Kaiser Permanente's front end answers 500 ("Page Not Found") at
+/// `https://healthy.kaiserpermanente.org/<region>/Authentication/OAuth/Start`,
+/// where `fhir.kp.org` sends every region but Washington, with or without a
+/// kp.org session; the same path in lowercase reaches Epic's MyChart and the
+/// sign-in completes (docs/api.md, Kaiser Permanente). For a redirect to
+/// that page, the lowercase address with the same query, and the page as it
+/// is without its query, to check it still fails. `None` for any other
+/// address.
+pub fn kaiser_start(location: &str) -> Option<(String, String)> {
+    let url = reqwest::Url::parse(location).ok()?;
+    if url.scheme() != "https" || url.host_str()? != KP_PAGES {
+        return None;
+    }
+    let region = url.path().strip_suffix(KP_START)?.strip_prefix('/')?;
+    if region.is_empty() || region.contains('/') {
+        return None;
+    }
+    let mut lower = url.clone();
+    lower.set_path(&url.path().to_ascii_lowercase());
+    let mut page = url.clone();
+    page.set_query(None);
+    page.set_fragment(None);
+    Some((lower.to_string(), page.to_string()))
+}
+
+/// The address a sign-in's window opens: `authorize`, the authorize
+/// address, except at Kaiser Permanente's organizations while their Start
+/// page fails ([`kaiser_start`]), where it is that page in lowercase. `get`
+/// sends one GET without following its redirect and answers its status and
+/// `Location`, or `None` when the request failed: one for `authorize`, as
+/// `auth probe` sends it (no `code` is issued without a session), and one
+/// for the Start page without its query. The page counts as fixed only when
+/// it answers below 400, so a refusal such as 403 or 429 is not mistaken
+/// for a fix. Any other answer, and any failure before the Start page is
+/// known, opens `authorize` as it is.
+pub fn address_to_open(
+    authorization_endpoint: &str,
+    authorize: &str,
+    get: impl Fn(&str) -> Option<(u16, Option<String>)>,
+) -> String {
+    if !is_kaiser(authorization_endpoint) {
+        return authorize.to_string();
+    }
+    let Some((300..=399, Some(location))) = get(authorize) else {
+        return authorize.to_string();
+    };
+    let location = match reqwest::Url::parse(authorize).and_then(|a| a.join(&location)) {
+        Ok(u) => u.to_string(),
+        Err(_) => return authorize.to_string(),
+    };
+    let Some((lower, page)) = kaiser_start(&location) else {
+        return authorize.to_string();
+    };
+    match get(&page) {
+        // Fixed: the page answers as it is.
+        Some((status, _)) if status < 400 => authorize.to_string(),
+        _ => lower,
     }
 }
 
@@ -171,6 +246,103 @@ mod tests {
     }
 
     use super::*;
+
+    const AUTHORIZE: &str =
+        "https://fhir.kp.org/KPPolarisPortal/esb-envlbl/190/oauth2/authorize?state=s&aud=a";
+    const START: &str =
+        "https://healthy.kaiserpermanente.org:443/fhirnw/Authentication/OAuth/Start?state=s&x=Y";
+
+    #[test]
+    fn kaisers_start_page_opens_in_lowercase_with_its_query() {
+        let (lower, page) = kaiser_start(START).unwrap();
+        assert_eq!(
+            lower,
+            "https://healthy.kaiserpermanente.org/fhirnw/authentication/oauth/start?state=s&x=Y"
+        );
+        assert_eq!(
+            page,
+            "https://healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start"
+        );
+        for other in [
+            "https://healthy.kaiserpermanente.org/fhirnw/authentication/oauth/start?state=s",
+            "https://healthy.kaiserpermanente.org/Authentication/OAuth/Start?state=s",
+            "https://healthy.kaiserpermanente.org/a/b/Authentication/OAuth/Start",
+            "http://healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start",
+            "https://mychart.example.org/fhirnw/Authentication/OAuth/Start",
+            "https://pages.example.org/cb?code=c&state=s",
+        ] {
+            assert_eq!(kaiser_start(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn only_a_failing_kaiser_start_page_changes_the_address() {
+        use std::cell::RefCell;
+        let asked = RefCell::new(Vec::new());
+        let answers = |start: Option<(u16, Option<String>)>,
+                       page: Option<(u16, Option<String>)>| {
+            asked.borrow_mut().clear();
+            let get = |u: &str| {
+                asked.borrow_mut().push(u.to_string());
+                if u == AUTHORIZE {
+                    start.clone()
+                } else {
+                    page.clone()
+                }
+            };
+            address_to_open(
+                "https://fhir.kp.org/KPPolarisPortal/esb-envlbl/190/oauth2/authorize",
+                AUTHORIZE,
+                get,
+            )
+        };
+        let lower = kaiser_start(START).unwrap().0;
+        assert_eq!(
+            answers(Some((302, Some(START.into()))), Some((500, None))),
+            lower
+        );
+        assert_eq!(asked.borrow().len(), 2);
+        // The page cannot be checked: lowercase still works.
+        assert_eq!(answers(Some((302, Some(START.into()))), None), lower);
+        // Kaiser fixed the page.
+        for fixed in [200, 302] {
+            assert_eq!(
+                answers(Some((302, Some(START.into()))), Some((fixed, None))),
+                AUTHORIZE
+            );
+        }
+        // A refusal is not a fix.
+        for refused in [403, 429] {
+            assert_eq!(
+                answers(Some((302, Some(START.into()))), Some((refused, None))),
+                lower
+            );
+        }
+        // Washington's own MyChart, an error page, no answer.
+        let other = "https://mychart.example.org/MyChart/Authentication/OAuth/Start?state=s";
+        assert_eq!(answers(Some((302, Some(other.into()))), None), AUTHORIZE);
+        assert_eq!(answers(Some((200, None)), None), AUTHORIZE);
+        assert_eq!(answers(None, None), AUTHORIZE);
+        // A relative redirect is taken from the authorize address's host.
+        assert_eq!(
+            answers(
+                Some((
+                    302,
+                    Some("/fhirnw/Authentication/OAuth/Start?state=s".into())
+                )),
+                None
+            ),
+            AUTHORIZE
+        );
+        // Not Kaiser: no request at all.
+        asked.borrow_mut().clear();
+        let none = address_to_open(
+            "https://fhir.example.org/oauth2/authorize",
+            "https://fhir.example.org/oauth2/authorize?state=s",
+            |_| panic!("asked another organization"),
+        );
+        assert_eq!(none, "https://fhir.example.org/oauth2/authorize?state=s");
+    }
 
     #[test]
     fn discovery_names_the_client_and_renewal_sends_no_scope() {
