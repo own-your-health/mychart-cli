@@ -4,9 +4,9 @@
 registers its own patient-facing app at [fhir.epic.com](https://fhir.epic.com)
 and sets the two client ids Epic gives. The registration is free, needs no
 Epic customer, and takes about 20 minutes, then a few hours for Epic to
-sync. `mychart registration` prints every field below with its value (`--json`
-for `registration/v1`; `--apis` lists the APIs to select). Epic's wording for each step
-is quoted in [api.md](api.md).
+sync. `mychart registration` prints every field below with its value,
+including the 165 APIs to select (`--json` for `registration/v2`). Epic's
+wording for each step is quoted in [api.md](api.md).
 
 A public client's client id is not a secret: it travels in every sign-in
 URL, and Epic tells developers to hand client ids to health systems. Epic's

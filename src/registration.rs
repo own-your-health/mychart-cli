@@ -1,23 +1,22 @@
 //! What to enter in Epic's developer portal to register an app for mychart
-//! (`mychart registration`, pk-med-smart's `registration/v1`), and whether
-//! this install has its client ids. docs/registration.md walks through the
+//! (`mychart registration`, pk-med-smart's `registration/v2`), and whether
+//! this install has its client ids. One Epic app, one form, two client ids:
+//! the production registration and its clone, the sandbox's, differ only in
+//! their name and store command. docs/registration.md walks through the
 //! same pages; tests keep its API list equal to [`APIS_KEPT`] and
 //! [`APIS_OUTSIDE`] and every label here in it.
 
 use pk_cli_core::CliError;
-use pk_med_smart::registration::FormField;
 use pk_med_smart::{
-    missing_client, with_client, ClientStatus, ClientType, Registration, ScopeSet, StoredIn,
+    missing_client, with_clients, ClientStatus, ClientType, Registration, ScopeSet, StoredIn,
 };
 
 use crate::config::{Config, PUBLISHED_REDIRECT};
 
 const BIN: &str = "mychart";
 
-/// The walkthrough, by its path in the repository.
-pub const DOC: &str = "docs/registration.md";
-
-/// The walkthrough, for a binary installed without the repository.
+/// The walkthrough, which a binary installed without the repository can
+/// open.
 pub const DOC_URL: &str = "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md";
 
 /// Epic's developer portal.
@@ -45,7 +44,7 @@ pub enum Which {
 }
 
 impl Which {
-    /// The registration's name in `registration/v1` errors and `client`.
+    /// The registration's name in `registration/v2`, errors and `clients`.
     pub fn name(self) -> &'static str {
         match self {
             Which::Production => "production",
@@ -66,10 +65,10 @@ impl Which {
         format!("{BIN} config set {} <CLIENT_ID>", self.key())
     }
 
-    fn configured(self, cfg: &Config) -> bool {
+    fn client_id(self, cfg: &Config) -> Option<&str> {
         match self {
-            Which::Production => cfg.client_id.is_some(),
-            Which::Sandbox => cfg.sandbox_client_id.is_some(),
+            Which::Production => cfg.client_id.as_deref(),
+            Which::Sandbox => cfg.sandbox_client_id.as_deref(),
         }
     }
 }
@@ -89,38 +88,36 @@ pub fn redirect_uris(cfg: &Config) -> Vec<String> {
     ]
 }
 
-fn url(label: &str, value: &str, note: &str) -> FormField {
-    FormField {
-        label: label.into(),
-        value: value.into(),
-        note: Some(note.into()),
-    }
-}
-
-/// What to enter in Epic's portal for this install's port and scope. The
-/// fields come from the app's Create page, its Edit page and its Data Use
-/// Questionnaire, in that order.
-pub fn registration(cfg: &Config) -> Registration {
-    let api_count = APIS_KEPT.len() + APIS_OUTSIDE.len();
+/// What to enter in Epic's portal for this install's port and scope, as
+/// `which`'s registration. The fields come from the app's Create page, its
+/// Edit page and its Data Use Questionnaire, in that order; both
+/// registrations print the same form, from `mychart registration`.
+pub fn registration(cfg: &Config, which: Which) -> Registration {
     let mut reg = Registration::new(
         BIN,
         VENDOR,
         PORTAL,
-        DOC,
+        DOC_URL,
         ClientType::Public,
-        format!(
-            "{} && {}",
-            Which::Sandbox
-                .store()
-                .replace("<CLIENT_ID>", "<NON_PRODUCTION_CLIENT_ID>"),
-            Which::Production.store()
-        ),
+        Which::Production.store(),
     )
+    .registration(Which::Production.name())
     .scopes(&ScopeSet::parse(cfg.scope()));
     for uri in redirect_uris(cfg) {
         reg = reg.redirect_uri(uri);
     }
     reg = reg
+        .url_with_note("Public Documentation URL", REPO_URL, "on the Create page")
+        .url_with_note(
+            "Terms and Conditions URL",
+            TERMS_URL,
+            "or a page of your own; it cannot change after Ready for Production",
+        )
+        .url_with_note(
+            "Additional Disclosure Info URL",
+            PRIVACY_URL,
+            "optional, or a page of your own; it cannot change after Ready for Production",
+        )
         .field_with_note(
             "Application Name",
             "A name you recognise",
@@ -128,11 +125,6 @@ pub fn registration(cfg: &Config) -> Registration {
         )
         .field("Application Audience", "Patients")
         .field("Automatic Client Distribution", "USCDI v3")
-        .field_with_note(
-            "Incoming APIs",
-            format!("The {api_count} APIs `{BIN} registration --apis` lists"),
-            "nothing can be added after Save & Ready for Production",
-        )
         .field("Outgoing APIs", "None")
         .field_with_note(
             "Endpoint URI",
@@ -195,8 +187,20 @@ pub fn registration(cfg: &Config) -> Registration {
             "None",
             "answer both tabs; do not choose Lock my answers",
         )
+        .selection_with_note(
+            "Incoming APIs",
+            APIS_KEPT.iter().chain(APIS_OUTSIDE).copied(),
+            format!(
+                "the R4 APIs Epic marks USCDI v3 for patients: {} for the records the \
+                 organization keeps, {} for copies other organizations sent; nothing can be \
+                 added after Save & Ready for Production",
+                APIS_KEPT.len(),
+                APIS_OUTSIDE.len()
+            ),
+        )
         .note(format!(
-            "The guide, for an install without the repository: {DOC_URL}."
+            "The same app's Non-Production Client ID is the sandbox's: store it with `{}`.",
+            Which::Sandbox.store()
         ))
         .note(
             "Sign up first as an individual, not a company: your own name, email and address, \
@@ -222,63 +226,56 @@ pub fn registration(cfg: &Config) -> Registration {
              production organizations within 12 hours, most within one; `{BIN} auth probe --org \
              <ID>` says when."
         ));
-    reg.urls = vec![
-        url("Public Documentation URL", REPO_URL, "on the Create page"),
-        url(
-            "Terms and Conditions URL",
-            TERMS_URL,
-            "or a page of your own; it cannot change after Ready for Production",
-        ),
-        url(
-            "Additional Disclosure Info URL",
-            PRIVACY_URL,
-            "optional, or a page of your own; it cannot change after Ready for Production",
-        ),
-    ];
-    reg
+    match which {
+        Which::Production => reg,
+        Which::Sandbox => {
+            let mut sandbox = reg.registration(Which::Sandbox.name());
+            sandbox.store = Which::Sandbox.store();
+            sandbox
+        }
+    }
 }
 
 /// The error a sign-in or probe gives when `which` has no client id: exit 2,
-/// reason `no-client`, naming the guide, `mychart registration` and the one
+/// reason `no_client`, naming the guide, `mychart registration` and the one
 /// command that stores it.
 pub fn missing(cfg: &Config, which: Which) -> CliError {
-    let mut reg = registration(cfg);
-    reg.store = which.store();
-    missing_client(&reg, Some(which.name()))
+    missing_client(&registration(cfg, which))
 }
 
-/// Whether `which` has a client id, for `info` and `auth status`. The id
-/// stays out: Epic's guidelines ask that it be kept to the app.
+/// Whether `which` has a client id, for `info` and `auth status`: at most
+/// its last four characters, never the id.
 pub fn client_status(cfg: &Config, which: Which) -> ClientStatus {
-    let status = if which.configured(cfg) {
-        ClientStatus::configured(ClientType::Public, StoredIn::Config)
-    } else {
-        ClientStatus::none()
-    };
-    status.registration(which.name())
+    let reg = registration(cfg, which);
+    match which.client_id(cfg) {
+        Some(id) => ClientStatus::of(&reg, Some(StoredIn::Config)).client_id_last_four(id),
+        None => ClientStatus::of(&reg, None),
+    }
 }
 
-/// `dto` (`cli-info/v1`, `auth-status/v1`) with `client`, production's
-/// [`client_status`], and `sandbox_client`, the sandbox's.
-pub fn with_clients<T: serde::Serialize>(
+/// `dto` (`cli-info/v1`, `auth-status/v1`) with `clients`: production's
+/// [`client_status`], then the sandbox's.
+pub fn with_both<T: serde::Serialize>(
     dto: &T,
     cfg: &Config,
 ) -> Result<serde_json::Value, CliError> {
-    let mut v = with_client(dto, &client_status(cfg, Which::Production))?;
-    v["sandbox_client"] = serde_json::to_value(client_status(cfg, Which::Sandbox))
-        .map_err(|e| CliError::Other(format!("serializing the client: {e}")))?;
-    Ok(v)
+    with_clients(
+        dto,
+        &[
+            client_status(cfg, Which::Production),
+            client_status(cfg, Which::Sandbox),
+        ],
+    )
 }
 
-/// The human lines for [`client_status`]: production's always, and the
-/// sandbox's when it is configured, since it is optional.
+/// The human lines: one per registration, then the https redirect's
+/// command when production has an id but no `redirect_uri`.
 pub fn client_lines(cfg: &Config) -> Vec<String> {
-    let reg = registration(cfg);
-    let mut lines = vec![client_status(cfg, Which::Production).text(&reg)];
-    if Which::Sandbox.configured(cfg) {
-        lines.push(client_status(cfg, Which::Sandbox).text(&reg));
-    }
-    if Which::Production.configured(cfg) && cfg.redirect_uri.is_none() {
+    let mut lines: Vec<String> = [Which::Production, Which::Sandbox]
+        .into_iter()
+        .map(|w| client_status(cfg, w).text(&registration(cfg, w)))
+        .collect();
+    if cfg.client_id.is_some() && cfg.redirect_uri.is_none() {
         lines.push(format!(
             "production takes only an https redirect: `{BIN} config set redirect_uri {PUBLISHED_REDIRECT}`"
         ));
@@ -493,7 +490,7 @@ mod tests {
     #[test]
     fn every_field_is_in_the_docs() {
         let doc = include_str!("../docs/registration.md");
-        let reg = registration(&Config::default());
+        let reg = registration(&Config::default(), Which::Production);
         for field in reg.urls.iter().chain(&reg.fields) {
             let name = field.label.split(", ").next().unwrap();
             assert!(
@@ -510,9 +507,28 @@ mod tests {
         }
         assert!(SUMMARY.len() <= 500);
         let v = serde_json::to_value(&reg).unwrap();
-        assert_eq!(v["schema"], "registration/v1");
+        assert_eq!(v["schema"], "registration/v2");
+        assert_eq!(v["registration"], "production");
+        assert_eq!(v["command"], "mychart registration");
         assert_eq!(v["client_type"], "public");
         assert_eq!(v["scopes"], serde_json::json!(["openid", "fhirUser"]));
+        assert_eq!(v["selections"][0]["label"], "Incoming APIs");
+        assert_eq!(v["selections"][0]["items"].as_array().unwrap().len(), 165);
+    }
+
+    #[test]
+    fn the_sandbox_is_the_same_form_with_its_own_store() {
+        let cfg = Config::default();
+        let production = registration(&cfg, Which::Production);
+        let sandbox = registration(&cfg, Which::Sandbox);
+        assert_eq!(sandbox.registration.as_deref(), Some("sandbox"));
+        assert_eq!(
+            sandbox.store,
+            "mychart config set sandbox_client_id <CLIENT_ID>"
+        );
+        assert_eq!(sandbox.command, production.command);
+        assert_eq!(sandbox.fields, production.fields);
+        assert_eq!(sandbox.selections, production.selections);
     }
 
     #[test]
@@ -537,28 +553,38 @@ mod tests {
         assert_eq!(e.exit_code(), 2);
         assert_eq!(e.reason(), Some(pk_med_smart::registration::NO_CLIENT));
         let remedy = e.remedy().unwrap();
-        assert!(remedy.contains(DOC), "{remedy}");
-        assert!(remedy.contains("mychart registration"), "{remedy}");
+        assert!(remedy.contains(DOC_URL), "{remedy}");
+        assert!(remedy.contains("`mychart registration`"), "{remedy}");
         assert!(
             remedy.contains("config set sandbox_client_id <CLIENT_ID>"),
             "{remedy}"
         );
         assert!(!remedy.contains("config set client_id"), "{remedy}");
-        assert!(e.message().contains("sandbox"), "{}", e.message());
+        assert!(
+            e.message().contains("sandbox registration"),
+            "{}",
+            e.message()
+        );
     }
 
     #[test]
-    fn client_status_names_registrations_never_ids() {
+    fn client_status_shows_at_most_the_last_four() {
         let mut cfg = Config::default();
         let v = serde_json::to_value(client_status(&cfg, Which::Production)).unwrap();
         assert_eq!(v["configured"], false);
         assert_eq!(v["registration"], "production");
-        assert_eq!(client_lines(&cfg).len(), 1);
-        cfg.client_id = Some("not-a-real-id".into());
-        cfg.sandbox_client_id = Some("not-a-real-sandbox-id".into());
+        let lines = client_lines(&cfg);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[1].starts_with("client (sandbox): none configured"),
+            "{lines:?}"
+        );
+        cfg.client_id = Some("00000000-not-a-real-id-0001".into());
+        cfg.sandbox_client_id = Some("00000000-not-a-real-id-0002".into());
         let v = serde_json::to_value(client_status(&cfg, Which::Sandbox)).unwrap();
         assert_eq!(v["configured"], true);
         assert_eq!(v["stored_in"], "config");
+        assert_eq!(v["client_id_ends_with"], "0002");
         assert!(!v.to_string().contains("not-a-real"));
         let lines = client_lines(&cfg);
         assert_eq!(lines.len(), 3, "{lines:?}");

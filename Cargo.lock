@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "mychart-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "assert_cmd",
  "base64 0.22.1",
@@ -1741,8 +1741,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-fhir"
-version = "0.6.8"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
+version = "0.6.9"
+source = "git+https://github.com/piekstra/medical-common?rev=dd65c90f28fdfea0391cc75320e2e32334afbcc7#dd65c90f28fdfea0391cc75320e2e32334afbcc7"
 dependencies = [
  "base64 0.22.1",
  "pk-cli-core",
@@ -1753,8 +1753,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-records"
-version = "0.6.8"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
+version = "0.6.9"
+source = "git+https://github.com/piekstra/medical-common?rev=dd65c90f28fdfea0391cc75320e2e32334afbcc7#dd65c90f28fdfea0391cc75320e2e32334afbcc7"
 dependencies = [
  "pk-cli-core",
  "pk-med-fhir",
@@ -1764,8 +1764,8 @@ dependencies = [
 
 [[package]]
 name = "pk-med-smart"
-version = "0.6.8"
-source = "git+https://github.com/piekstra/medical-common?tag=v0.6.8#eb84bd18381a3cd295cde6b982de1270ffd95df6"
+version = "0.6.9"
+source = "git+https://github.com/piekstra/medical-common?rev=dd65c90f28fdfea0391cc75320e2e32334afbcc7#dd65c90f28fdfea0391cc75320e2e32334afbcc7"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.4.3",

@@ -27,7 +27,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Api(args) => commands::api::run(&ctx, args),
         Command::Profiles(cmd) => commands::profiles::run(&ctx, cmd),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
-        Command::Registration(args) => commands::registration::run(&ctx, args),
+        Command::Registration => commands::registration::run(&ctx),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
@@ -72,7 +72,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                 eprintln!("warning: the config does not read: {}", e.message());
                 mychart::config::Config::default()
             });
-            output::json(&mychart::registration::with_clients(&info, &cfg)?);
+            output::json(&mychart::registration::with_both(&info, &cfg)?);
             Ok(())
         }
     }

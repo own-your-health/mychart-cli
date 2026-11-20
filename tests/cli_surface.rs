@@ -166,9 +166,14 @@ fn an_install_without_a_client_says_how_to_register() {
             .get_output()
             .stdout,
     );
-    assert_eq!(v["schema"], "registration/v1");
+    assert_eq!(v["schema"], "registration/v2");
     assert_eq!(v["cli"], "mychart");
-    assert_eq!(v["doc"], "docs/registration.md");
+    assert_eq!(v["registration"], "production");
+    assert_eq!(v["command"], "mychart registration");
+    assert_eq!(
+        v["doc"],
+        "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md"
+    );
     assert_eq!(v["client_type"], "public");
     assert_eq!(v["launch"], "standalone-patient");
     assert_eq!(v["pkce"], "S256");
@@ -179,43 +184,18 @@ fn an_install_without_a_client_says_how_to_register() {
             "https://piekstra.github.io/mychart-cli/callback"
         ])
     );
-    assert!(v["store"]
-        .as_str()
-        .unwrap()
-        .contains("mychart config set client_id <CLIENT_ID>"));
-    let labels: Vec<&str> = v["fields"]
+    assert_eq!(v["store"], "mychart config set client_id <CLIENT_ID>");
+    assert_eq!(v["selections"][0]["label"], "Incoming APIs");
+    assert_eq!(v["selections"][0]["items"].as_array().unwrap().len(), 165);
+    assert!(v["notes"]
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|f| f["label"].as_str())
-        .collect();
-    assert!(labels.contains(&"Incoming APIs"), "{labels:?}");
-    let apis = json_of(
-        &mychart(&home)
-            .args(["registration", "--apis", "--json"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout,
-    );
-    assert_eq!(apis["schema"], "registration-apis/v1");
-    let count = apis["records_the_organization_keeps"]
-        .as_array()
-        .unwrap()
-        .len()
-        + apis["copies_other_organizations_sent"]
-            .as_array()
-            .unwrap()
-            .len();
-    assert_eq!(count, 165);
-    let listed = mychart(&home)
+        .any(|n| n.as_str().unwrap().contains("config set sandbox_client_id")));
+    mychart(&home)
         .args(["registration", "--apis"])
         .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    assert_eq!(String::from_utf8(listed).unwrap().lines().count(), 165);
+        .code(2);
 
     let info = json_of(
         &mychart(&home)
@@ -226,10 +206,12 @@ fn an_install_without_a_client_says_how_to_register() {
             .stdout,
     );
     assert_eq!(
-        info["client"],
-        json!({"configured": false, "registration": "production"})
+        info["clients"],
+        json!([
+            {"configured": false, "registration": "production"},
+            {"configured": false, "registration": "sandbox"}
+        ])
     );
-    assert_eq!(info["sandbox_client"]["configured"], false);
     assert!(info["capabilities"]
         .as_array()
         .unwrap()
@@ -243,7 +225,7 @@ fn an_install_without_a_client_says_how_to_register() {
             .get_output()
             .stdout,
     );
-    assert_eq!(status["client"]["configured"], false);
+    assert_eq!(status["clients"][0]["configured"], false);
     let text = as_acct1(&home)
         .args(["auth", "status"])
         .assert()
@@ -252,10 +234,12 @@ fn an_install_without_a_client_says_how_to_register() {
         .stdout
         .clone();
     let text = String::from_utf8_lossy(&text);
-    assert!(
-        text.contains("Client:        client: none configured; see docs/registration.md"),
-        "{text}"
-    );
+    for line in [
+        "Client:        client (production): none configured; see https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md and `mychart registration`",
+        "               client (sandbox): none configured",
+    ] {
+        assert!(text.contains(line), "{text}");
+    }
 
     let out = as_acct1(&home)
         .args(["auth", "login", "--org", "1000", "--no-browser", "--json"])
@@ -266,7 +250,7 @@ fn an_install_without_a_client_says_how_to_register() {
         .clone();
     let err = json_of(&out);
     assert_eq!(err["error"]["code"], "usage", "{err}");
-    let message = err["error"]["message"].as_str().unwrap();
+    let message = err.to_string();
     for part in [
         "no Epic on FHIR client is configured for the production registration",
         "docs/registration.md",
@@ -281,7 +265,7 @@ fn an_install_without_a_client_says_how_to_register() {
     );
 
     mychart(&home)
-        .args(["config", "set", "client_id", "not-a-real-id"])
+        .args(["config", "set", "client_id", "00000000-not-a-real-id-0001"])
         .assert()
         .success();
     let info = json_of(
@@ -292,8 +276,9 @@ fn an_install_without_a_client_says_how_to_register() {
             .get_output()
             .stdout,
     );
-    assert_eq!(info["client"]["configured"], true);
-    assert_eq!(info["client"]["stored_in"], "config");
+    assert_eq!(info["clients"][0]["configured"], true);
+    assert_eq!(info["clients"][0]["stored_in"], "config");
+    assert_eq!(info["clients"][0]["client_id_ends_with"], "0001");
     assert!(!info.to_string().contains("not-a-real-id"));
 }
 
