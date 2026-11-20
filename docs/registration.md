@@ -4,8 +4,8 @@
 registers its own patient-facing app at [fhir.epic.com](https://fhir.epic.com)
 and sets the two client ids Epic gives. The registration is free, needs no
 Epic customer, and takes about 20 minutes, then a few hours for Epic to
-sync. `mychart registration` prints every field below with its value (and
-`--json`; `--apis` lists the APIs to select). Epic's wording for each step
+sync. `mychart registration` prints every field below with its value (`--json`
+for `registration/v1`; `--apis` lists the APIs to select). Epic's wording for each step
 is quoted in [api.md](api.md).
 
 A public client's client id is not a secret: it travels in every sign-in
@@ -22,7 +22,7 @@ ships none; keep yours to your own config.
 | Launch | Standalone patient launch: the person starts it, not an EHR |
 | Client type | Public (no secret), with Epic's dynamic client registration: each install makes its own key and gets access tokens with the JWT-bearer grant |
 | PKCE | S256, on every sign-in |
-| Redirect URIs | `http://127.0.0.1:7468/callback`, `http://localhost:7468/callback`, and the https page `https://piekstra.github.io/mychart-cli/callback`, which forwards a sign-in to this computer (production takes only https). Another `redirect_port` changes the first two; `mychart registration` prints them for yours |
+| Redirect URIs | `http://127.0.0.1:7468/callback`, where mychart listens, and the https page `https://piekstra.github.io/mychart-cli/callback`, which forwards a sign-in to it (production takes only https). Another `redirect_port` changes the first; `mychart registration` prints them for yours. mychart never sends `localhost` |
 | Scopes | SMART v1; mychart asks for `openid fhirUser`, and Epic adds the scopes of the APIs selected |
 | APIs | 165, all read-only, all on Epic's USCDI v3 list, so the client id reaches every US organization by itself |
 
@@ -66,7 +66,7 @@ save.
 | Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
 | Incoming APIs | Every API in the [list below](#apis-to-select), moved from **Available** to **Selected** with `>>`; the **Search available service list** box filters the list. |
 | Outgoing APIs | None. |
-| Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row), the scheme from the row's scheme list and the rest without a scheme. Row 1: `http://` and `127.0.0.1:7468/callback`. Row 2: `http://` and `localhost:7468/callback`. Row 3: `https://` and `piekstra.github.io/mychart-cli/callback`, the page that forwards a sign-in to this computer ([api.md](api.md), section 1): production takes only https, and **Save & Ready for Production** stays disabled until an https row exists. Epic compares them character for character. |
+| Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row), the scheme from the row's scheme list and the rest without a scheme. Row 1: `http://` and `127.0.0.1:7468/callback`. Row 2: `https://` and `piekstra.github.io/mychart-cli/callback`, the page that forwards a sign-in to this computer ([api.md](api.md), section 1): production takes only https, and **Save & Ready for Production** stays disabled until an https row exists. Epic compares them character for character. |
 | Can Register Dynamic Clients ("Will this app register dynamic clients?") | **Checked**. mychart has no server to keep a secret; each install registers its own key instead. |
 | "How will dynamic clients request an access token?" | **JWT Bearer Grant Type** (the default). |
 | Is Confidential Client | **Unchecked**. Its extra settings (Requires Persistent Access, Uses Rolling Refresh Tokens, Can Have Indefinite Access, JWK Set URLs) appear only when it is checked. |

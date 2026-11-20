@@ -121,16 +121,17 @@ Release assets: `mychart-<target>.tar.gz` and `.sha256` for
 | `orgs refresh\|list\|search` | Epic's directory of organizations (`org-list/v1`), downloaded at most weekly into `~/.cache/mychart` |
 | `profiles list\|add\|remove\|migrate` | The logins this install signs in as, one per MyChart account at an organization (`profile-list/v1`); `migrate [--org <ORG>] [--patient <WHO>]` moves one login's sign-ins from mychart 0.4 into one, for good |
 | `auth login --org <ORG> [--label <WHO>]` | Standalone patient launch in the profile's Chrome window (PKCE), then Epic's dynamic client registration so access lasts for the period chosen in MyChart |
-| `auth status` / `auth logout [--forget]` | Each of the profile's sign-ins and its state (`auth-status/v1`); remove one or all, and with `--forget` the settings other than profiles |
+| `auth status` / `auth logout [--forget]` | Each of the profile's sign-ins and its state (`auth-status/v1`), and whether this install has its client ids (`client`, `sandbox_client`); remove one or all, and with `--forget` the settings other than profiles |
 | `auth probe --org <ORG>` | Whether the organization knows this app's client id and redirect, without signing in (`auth-probe/v1`) |
 | `patients list [--status]` | The patients signed in, each with `self` or `proxy` (`patient-list/v1`) |
 | `records export --patient <ID> [--since D] --ndjson` | Every resource the organization serves, documents included, as `records-stream/v1` |
 | `records export --patient <ID> -o <DIR>` | The same stream into `<DIR>/records.ndjson`, for Epic's sandbox and test servers only (`records-export/v1`); one cut short goes to `records.incomplete.ndjson` |
 | `documents list\|download` | Notes, reports and scans (`documents/v1`) |
 | `api GET <path>` | One FHIR read as the signed-in patient |
-| `registration [--apis]` | What to enter in Epic's developer portal: every field of each page, the redirect URIs for this install's port, the 165 APIs, and the commands that store the client ids (`registration/v1`) |
+| `registration [--apis]` | What to enter in Epic's developer portal: every field of its pages, the redirect URIs for this install's port, and the commands that store the client ids (`registration/v1`); `--apis` lists the 165 APIs to select (`registration-apis/v1`). Reads no secret and makes no request |
 | `config path\|show\|set\|unset` | Client ids, redirect port and https redirect page, scope, directory URL; `show` lists profiles by name and patient count only |
-| `info`, `completions`, `self-update` | Family standard |
+| `info` | Family standard (`cli-info/v1`), plus `client` and `sandbox_client`: whether the production and sandbox client ids are set, never their values |
+| `completions`, `self-update` | Family standard |
 
 Every command takes `--json`. Every command that uses a sign-in (`auth
 login|status|logout`, `patients`, `records`, `documents`, `api`) takes

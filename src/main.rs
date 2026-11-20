@@ -60,19 +60,19 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "api",
                     "profiles",
                     "config",
-                    "registration",
+                    pk_med_records::REGISTRATION,
                     pk_med_records::LOGIN_PROFILES,
                 ],
             )
             .with_profiles(PROFILES);
-            let mut v = serde_json::to_value(&info).expect("CliInfo serializes to JSON");
-            // Whether this install has its client ids; a config that does
-            // not read says why instead.
-            v["client"] = match ctx.config() {
-                Ok(cfg) => mychart::registration::client_status(&cfg),
-                Err(e) => serde_json::json!({ "error": e.message() }),
-            };
-            output::json(&v);
+            // Whether this install has its client ids. A config that does
+            // not read has none to sign in with: `info` still answers, and
+            // says why on stderr.
+            let cfg = ctx.config().unwrap_or_else(|e| {
+                eprintln!("warning: the config does not read: {}", e.message());
+                mychart::config::Config::default()
+            });
+            output::json(&mychart::registration::with_clients(&info, &cfg)?);
             Ok(())
         }
     }
