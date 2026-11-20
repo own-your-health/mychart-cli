@@ -63,9 +63,9 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   `pk-cli-auth`) binds and names only the IP literal (RFC 8252 §7.3). With
   `mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback`
   (mychart 0.4), it sends that page instead, for every organization.
-  [registration.md](registration.md) registers all three URIs: the two http
-  loopback spellings serve the sandbox, and the https page serves
-  production. Epic compares redirect URIs exactly ("URIs are case
+  [registration.md](registration.md) registers the two URIs mychart sends:
+  the http loopback address serves the sandbox, and the https page serves
+  production. mychart never sends `localhost`, so the app need not list it. Epic compares redirect URIs exactly ("URIs are case
   sensitive", "URIs must be exact matches"), so the port is fixed (`mychart
   config set redirect_port`), never chosen at random.
   **The forwarding page.** `site/callback.html`, published from this
