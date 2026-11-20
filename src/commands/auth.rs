@@ -63,13 +63,26 @@ fn client_id_for(cfg: &Config, org: &Org) -> Result<(String, &'static str), CliE
     } else {
         (cfg.client_id.clone(), "client_id")
     };
-    let client_id = client_id.ok_or_else(|| {
-        CliError::Usage(format!("no {key_name} is configured")).with_remedy(format!(
-            "register this household's app with Epic (docs/registration.md), then \
-             `{BIN} config set {key_name} <ID>`"
-        ))
-    })?;
+    let client_id = client_id.ok_or_else(|| missing_client(key_name))?;
     Ok((client_id, key_name))
+}
+
+/// No client id under `key_name`: the registration's doc and command.
+fn missing_client(key_name: &str) -> CliError {
+    CliError::Usage(format!("no {key_name} is configured")).with_remedy(format!(
+        "register an app with Epic: `{BIN} registration` prints what to enter in its portal \
+         ({}), then `{BIN} config set {key_name} <ID>`",
+        crate::registration::DOC_URL
+    ))
+}
+
+/// A production organization needs `client_id`, known before Epic's
+/// directory is read (a 100 MB download on a new install).
+fn require_production_client(cfg: &Config, query: &str) -> Result<(), CliError> {
+    if !query.trim().eq_ignore_ascii_case(orgs::SANDBOX_ID) && cfg.client_id.is_none() {
+        return Err(missing_client("client_id"));
+    }
+    Ok(())
 }
 
 fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
@@ -120,6 +133,7 @@ const KP_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 /// for: the redirect is not followed.
 pub fn probe_org(ctx: &Ctx, query: &str) -> Result<Value, CliError> {
     let cfg = ctx.config()?;
+    require_production_client(&cfg, query)?;
     let org = resolve_org(ctx, query)?;
     let (client_id, key_name) = client_id_for(&cfg, &org)?;
     cfg.check_redirect()?;
@@ -188,6 +202,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     }
     let profile = ctx.profile_name()?;
     let cfg = ctx.config()?;
+    require_production_client(&cfg, &args.org)?;
     let org = resolve_org(ctx, &args.org)?;
     let (client_id, _) = client_id_for(&cfg, &org)?;
     cfg.check_redirect()?;
@@ -550,12 +565,18 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored);
     status.session_valid = Some(any_usable);
+    let cfg = ctx.config()?;
     let mut v = status.to_json();
     v["patients"] = Value::Array(rows.clone());
+    v["client"] = crate::registration::client_status(&cfg);
     if ctx.json() {
         output::json(&v);
     } else {
         status.render();
+        println!("Client:        {}", crate::registration::client_line(&cfg));
+        if let Some(remedy) = v["client"]["remedy"].as_str() {
+            println!("               {remedy}");
+        }
         if rows.is_empty() {
             println!(
                 "Patients:      none signed in (`{BIN} auth login --profile {profile} --org <ORG>`)"

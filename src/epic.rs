@@ -230,25 +230,25 @@ mod tests {
     const AUTHORIZE: &str =
         "https://fhir.kp.org/KPPolarisPortal/esb-envlbl/190/oauth2/authorize?state=s&aud=a";
     const START: &str =
-        "https://healthy.kaiserpermanente.org:443/fhirnw/Authentication/OAuth/Start?state=s&x=Y";
+        "https://healthy.kaiserpermanente.org:443/fhirxx/Authentication/OAuth/Start?state=s&x=Y";
 
     #[test]
     fn kaisers_start_page_opens_in_lowercase_with_its_query() {
         let (lower, page) = kaiser_start(START).unwrap();
         assert_eq!(
             lower,
-            "https://healthy.kaiserpermanente.org/fhirnw/authentication/oauth/start?state=s&x=Y"
+            "https://healthy.kaiserpermanente.org/fhirxx/authentication/oauth/start?state=s&x=Y"
         );
         assert_eq!(
             page,
-            "https://healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start"
+            "https://healthy.kaiserpermanente.org/fhirxx/Authentication/OAuth/Start"
         );
         for other in [
-            "https://healthy.kaiserpermanente.org/fhirnw/authentication/oauth/start?state=s",
+            "https://healthy.kaiserpermanente.org/fhirxx/authentication/oauth/start?state=s",
             "https://healthy.kaiserpermanente.org/Authentication/OAuth/Start?state=s",
             "https://healthy.kaiserpermanente.org/a/b/Authentication/OAuth/Start",
-            "http://healthy.kaiserpermanente.org/fhirnw/Authentication/OAuth/Start",
-            "https://mychart.example.org/fhirnw/Authentication/OAuth/Start",
+            "http://healthy.kaiserpermanente.org/fhirxx/Authentication/OAuth/Start",
+            "https://mychart.example.org/fhirxx/Authentication/OAuth/Start",
             "https://pages.example.org/cb?code=c&state=s",
         ] {
             assert_eq!(kaiser_start(other), None, "{other}");
@@ -308,7 +308,7 @@ mod tests {
             answers(
                 Some((
                     302,
-                    Some("/fhirnw/Authentication/OAuth/Start?state=s".into())
+                    Some("/fhirxx/Authentication/OAuth/Start?state=s".into())
                 )),
                 None
             ),

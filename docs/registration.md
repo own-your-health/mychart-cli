@@ -1,20 +1,37 @@
-# Registering your household's app with Epic
+# Registering your app with Epic
 
-`mychart` ships without a client id. Each household registers its own
-patient-facing app at [fhir.epic.com](https://fhir.epic.com) and sets the two
-client ids it is given. The registration is free, needs no Epic customer, and
-takes about 20 minutes. Epic's wording for each step is quoted in
-[api.md](api.md).
+`mychart` ships without a client id. Each person or household that uses it
+registers its own patient-facing app at [fhir.epic.com](https://fhir.epic.com)
+and sets the two client ids Epic gives. The registration is free, needs no
+Epic customer, and takes about 20 minutes, then a few hours for Epic to
+sync. `mychart registration` prints every field below with its value (and
+`--json`; `--apis` lists the APIs to select). Epic's wording for each step
+is quoted in [api.md](api.md).
 
-A client id of a public client is not a secret: it travels in every sign-in
-URL. Epic's guidelines still ask developers to keep client identifiers
-confidential, so do not publish yours.
+A public client's client id is not a secret: it travels in every sign-in
+URL, and Epic tells developers to hand client ids to health systems. Epic's
+App Developer Guidelines still recommend that "The app keeps client
+identifiers confidential and does not disclose them to any other party or
+use them for any other purpose" (section 2, Security). So this repository
+ships none; keep yours to your own config.
+
+## What you are registering
+
+| Setting | mychart's |
+| --- | --- |
+| Launch | Standalone patient launch: the person starts it, not an EHR |
+| Client type | Public (no secret), with Epic's dynamic client registration: each install makes its own key and gets access tokens with the JWT-bearer grant |
+| PKCE | S256, on every sign-in |
+| Redirect URIs | `http://127.0.0.1:7468/callback`, `http://localhost:7468/callback`, and the https page `https://piekstra.github.io/mychart-cli/callback`, which forwards a sign-in to this computer (production takes only https). Another `redirect_port` changes the first two; `mychart registration` prints them for yours |
+| Scopes | SMART v1; mychart asks for `openid fhirUser`, and Epic adds the scopes of the APIs selected |
+| APIs | 165, all read-only, all on Epic's USCDI v3 list, so the client id reaches every US organization by itself |
 
 ## 1. Create a developer account
 
 1. Open <https://fhir.epic.com> and choose **Sign Up**.
-2. Fill in the sign-up page as an individual: a household registering its
-   own app is not a company and not a healthcare organization. Fields
+2. Fill in the sign-up page as an individual: a person or household
+   registering its own app is not a company and not a healthcare
+   organization. Fields
    marked `*` are required.
 
    | Section | Field | What to enter |
@@ -43,7 +60,7 @@ save.
 
 | Field | Value |
 | --- | --- |
-| Application Name | A name your household recognises, for example `Household Records (mychart-cli)`. MyChart shows it on the sign-in consent page ("Which patient do you want <application name> to be able to link to?"). |
+| Application Name | A name you recognise, for example `My Records (mychart-cli)`. MyChart shows it on the sign-in consent page ("Which patient do you want <application name> to be able to link to?"). |
 | Application Audience | **Patients** ("For patients and their caretakers authenticating with MyChart"; the others are Clinicians or Administrative Users, and Backend Systems). Leave any use-case radios the page shows at their default. |
 | Automatic Client Distribution | **USCDI v3** (the others are None, USCDI v1 and CMS Patient Access API). The page then says "This app will be automatically downloaded to all qualifying customers upon marking it ready for production." |
 | Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
@@ -65,8 +82,8 @@ bar (Created, Test, Ready).
 | FHIR version | **R4** (the default). |
 | SMART scope version | **SMART v1** (the default). mychart asks for `openid fhirUser`; Epic adds the scopes of the selected APIs. |
 | FHIR ID generation | **Use Unconstrained FHIR IDs** (the default). Ids can then run past FHIR's 64 characters; mychart accepts them. The other choice, "Use 64-Character-Limited FHIR IDs for USCDI FHIR Resources", does not limit every resource. |
-| Summary (500 characters at most) | `A command-line tool a household uses to download its members' own records from MyChart through Epic's patient-access FHIR API. It only reads. Records stay on the household's computer.` |
-| Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the household's own records, only reads, keeps them on the household's computer, signs in through a browser window of its own, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
+| Summary (500 characters at most) | `A command-line tool that downloads a person's own records, and their children's through proxy access, from MyChart through Epic's patient-access FHIR API. It only reads. Records stay on the person's computer.` |
+| Description (2000 characters at most) | What mychart does, in a paragraph: it downloads the person's own records, only reads, keeps them on their computer, signs in through a browser window of its own, and loses access when the person removes it under MyChart's linked apps or runs `mychart auth logout`. |
 | Intended Purposes | **Individuals' Access to their EHI** only. |
 | Intended Users | **Individual/Caregiver** only. |
 | Terms and Conditions URL | Required for **Save & Ready for Production** on a patient-facing app. Choose `https://` and enter `piekstra.github.io/mychart-cli/terms`, the Terms of Use this repository publishes, or a page of your own. It cannot change after Ready for Production. |
@@ -127,9 +144,9 @@ Set the sandbox's client id first:
 mychart config set sandbox_client_id <Non-Production Client ID>
 ```
 
-Epic does not say how long a new app takes to reach its sandbox. The
-household's app reached it about 2 h 50 min to 3 h 20 min after **Save &
-Ready for Sandbox** (2026-11-16); developers report 12 to 24 hours. To check
+Epic does not say how long a new app takes to reach its sandbox. One app
+reached it about 2 h 50 min to 3 h 20 min after **Save & Ready for
+Sandbox**; developers report 12 to 24 hours. To check
 without signing in, run `mychart auth probe --org sandbox`. It answers
 `known`, `unknown` (the sandbox does not know the client yet), or `refused`
 with Epic's error code (`4`: the app does not list the redirect). Then:
@@ -173,9 +190,9 @@ needs; the sandbox accepts it too once Epic has synced the app.
 `mychart config unset redirect_uri` goes back to the loopback address.
 
 A sign-in at an organization within 12 hours of marking the app ready can
-fail with an unknown-client error; wait and try again. The household's app
-reached 6 of 9 organizations it was checked against within 50 minutes
-(2026-11-16, [api.md](api.md) section 3).
+fail with an unknown-client error; wait and try again. One app reached 6
+of 9 organizations it was checked against within 50 minutes ([api.md](api.md)
+section 3).
 
 To check that the client id reached an organization without signing in,
 run `mychart auth probe --org <ID>`: `known` means a sign-in can start,
@@ -183,6 +200,66 @@ run `mychart auth probe --org <ID>`: `known` means a sign-in can start,
 still answers `unknown` 24 hours after Ready for Production, the claims APIs
 (above) are the first suspect: a new app without them is the remedy, since
 an app's APIs cannot change after production.
+
+## What the portal refuses, and the way around it
+
+- **An http redirect in production.** Production organizations take only
+  https redirect URIs, and **Save & Ready for Production** stays disabled
+  until an https row exists. mychart listens on `127.0.0.1`, so the app
+  also lists `https://piekstra.github.io/mychart-cli/callback`, a page that
+  passes the sign-in's answer on to the listener, and `mychart config set
+  redirect_uri` makes every sign-in send it ([api.md](api.md), section 1).
+- **`http://` by default.** Each URL field has a scheme list that starts
+  at `http://`; choose `https://` before typing the rest without a scheme.
+- **No Terms and Conditions URL.** A patient-facing app cannot be marked
+  ready without one. This repository publishes
+  `https://piekstra.github.io/mychart-cli/terms`, and `/privacy` beside it.
+- **Changes after Ready for Production.** Only redirect URIs and JWK Set
+  URLs can change; anything else needs a new app, and a production app
+  "cannot be deactivated". Test in the sandbox first.
+- **The terms checkbox unticks itself** after each reload; tick it before
+  every save.
+- **Unsaved edits** are lost when **Open Data Use Questionnaire** leaves
+  the Edit page; save first.
+- **Lock my answers** revokes every token the app holds within 0 to 12
+  hours; leave it.
+- **An unknown client** for up to 12 hours after Ready for Production:
+  `mychart auth probe --org <ID>` says when an organization knows it.
+
+## The terms' key points
+
+Read 2026-11-20 from the open.epic Terms of Use
+(<https://fhir.epic.com/Resources/Terms>), Epic's App Developer Guidelines
+(<https://fhir.epic.com/Documentation?docId=developerguidelines>), its FAQ
+and its patient authentication tutorial. These are the points, not the
+terms; read them yourself before you accept.
+
+- **You are responsible.** "As between you and Epic, you are solely
+  responsible for your products and services … and for all liability and
+  consequences (e.g., Claims by or on behalf of patients … privacy
+  breaches; and security vulnerabilities)", and you "agree to indemnify,
+  hold harmless and defend Epic".
+- **Security.** A security vulnerability you find in Epic's software is
+  reported to Epic "as soon as possible".
+- **Reporting.** Epic "must measure and report information about
+  applications that connect to our certified software": names, developers,
+  intended purposes and users, and whether they are used, and may share it.
+- **The guidelines** are recommendations ("you and your apps are strongly
+  encouraged to practice the App Developer Guidelines"). Among them: keep
+  client identifiers confidential; give patients a clear data use or
+  privacy policy (this repository's `/privacy` page); keep the Data Use
+  Questionnaire's answers true, by a new app if they change; and use no
+  more than 1% of an organization's database resources at peak.
+- **What patients see.** MyChart's consent page reads "<application
+  name>, provided by <application developer>, is not affiliated with your
+  healthcare provider. <application developer> is not obligated by HIPAA
+  privacy guidelines to protect your health information", then the
+  questionnaire's answers; with none, it warns "Privacy Risk".
+- **Cost and review.** "There are no licensing costs to the app
+  developer", and "Epic does not review, certify, or verify developers …
+  or their applications."
+- **Epic's materials** (sandboxes, documentation, specifications) may be
+  shared "only by linking others directly to the Materials on the website".
 
 ## APIs to select
 

@@ -27,6 +27,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Api(args) => commands::api::run(&ctx, args),
         Command::Profiles(cmd) => commands::profiles::run(&ctx, cmd),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
+        Command::Registration(args) => commands::registration::run(&ctx, args),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
@@ -59,11 +60,19 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "api",
                     "profiles",
                     "config",
+                    "registration",
                     pk_med_records::LOGIN_PROFILES,
                 ],
             )
             .with_profiles(PROFILES);
-            output::json(&serde_json::to_value(&info).expect("CliInfo serializes to JSON"));
+            let mut v = serde_json::to_value(&info).expect("CliInfo serializes to JSON");
+            // Whether this install has its client ids; a config that does
+            // not read says why instead.
+            v["client"] = match ctx.config() {
+                Ok(cfg) => mychart::registration::client_status(&cfg),
+                Err(e) => serde_json::json!({ "error": e.message() }),
+            };
+            output::json(&v);
             Ok(())
         }
     }

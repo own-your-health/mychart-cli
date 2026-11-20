@@ -4,21 +4,69 @@ Pull your own health records, and your children's through MyChart proxy
 access, from any health system that runs Epic, through Epic's
 patient-access SMART on FHIR API.
 
+It is for anyone with a MyChart account: a patient, or a parent or
+caregiver with proxy access. It runs on your own computer (macOS; Linux
+builds too), and you register your own free app with Epic once, so no
+company or server stands between you and your health system.
+
 Unofficial; not affiliated with or endorsed by Epic Systems Corporation.
 MyChart is Epic's trademark.
 
-```sh
-mychart orgs search "<health system>"              # Epic's directory, cached weekly
-mychart profiles add adult1-org                    # one per MyChart account at an organization
-export MYCHART_PROFILE=adult1-org                  # or --profile adult1-org on each command
-mychart auth login --org <ID> --label adult1       # sign in in the profile's Chrome window
-mychart patients list
-medrec --profile <FOLDER> import --from mychart --from-profile adult1-org --org <ID> --patient adult1   # runs the export
-mychart records export --patient adult1 --ndjson    # the records-stream/v1 stream medrec reads
-mychart documents list --patient adult1
-mychart documents download <ID> -o note.html --patient adult1
-mychart api GET Patient/<id> --patient adult1
-```
+## Quick start
+
+1. **Install** mychart ([Install](#install)) and, to file the records,
+   [medrec](https://github.com/piekstra/medrec-cli).
+2. **Register your app with Epic, once.** It is free and takes about 20
+   minutes at [fhir.epic.com](https://fhir.epic.com), then a wait of a few
+   hours for Epic to sync it. `mychart registration` prints every field
+   and the value to enter; [docs/registration.md](docs/registration.md)
+   walks through it step by step. Store what Epic gives you:
+
+   ```sh
+   mychart config set sandbox_client_id <Non-Production Client ID>
+   mychart config set client_id <Client ID>
+   mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback
+   ```
+
+3. **Find your health system** and check that it knows your app:
+
+   ```sh
+   mychart orgs search "<health system>"       # Epic's directory, cached weekly
+   mychart auth probe --org <ID>               # `known`: you can sign in
+   ```
+
+4. **Sign in**, one profile per MyChart account at an organization:
+
+   ```sh
+   mychart profiles add <NAME>
+   mychart auth login --profile <NAME> --org <ID> --label <WHO>
+   ```
+
+   A Chrome window opens at your health system's MyChart. Sign in, pick
+   the person if MyChart lists several, and when it asks how long to
+   share, choose the longest period.
+5. **Export into medrec**, which runs mychart's export itself:
+
+   ```sh
+   medrec --profile <FOLDER> import --from mychart --from-profile <NAME> --org <ID> --patient <WHO>
+   ```
+
+Other reads: `mychart patients list`, `mychart documents list|download`,
+`mychart api GET Patient/<id>`, and `mychart records export --ndjson`, the
+`records-stream/v1` stream medrec reads. Every command that uses a sign-in
+takes `--profile <NAME>` (or `MYCHART_PROFILE`).
+
+**What needs you.** Registering the app at fhir.epic.com (an account, an
+emailed confirmation, the form). Each sign-in: MyChart's user id,
+password and any code it sends, the choice of patient, and the approval to
+share. And once per newly installed or upgraded mychart, the macOS dialog
+asking to use its Keychain key: choose **Always Allow**.
+
+**How long a sign-in lasts.** For the period you choose in MyChart, from
+the organization's options (1 hour to 1 year on Epic's screens). Until it
+ends, mychart renews access by itself, without a browser; after, `mychart
+auth login` again. Removing the app under MyChart's linked apps, or
+`mychart auth logout`, ends it sooner.
 
 `mychart` only reads. Records go where you send them; nothing is sent
 anywhere else.
@@ -26,8 +74,8 @@ anywhere else.
 ## What this app does with your records
 
 `mychart` runs on your own computer. There is no mychart server, account
-or company between you and your health system: each household registers
-its own copy of the app with Epic.
+or company between you and your health system: each person or household
+registers its own copy of the app with Epic.
 
 - **What it reads.** The records your health system lets your MyChart
   account share with apps, over Epic's patient-access FHIR API: allergies,
@@ -53,17 +101,6 @@ its own copy of the app with Epic.
 
 The source code is public in this repository, and anyone can read what it
 does.
-
-## Before the first sign-in
-
-Each household registers its own free patient app with Epic and gives
-`mychart` the two client ids: [docs/registration.md](docs/registration.md).
-
-```sh
-mychart config set sandbox_client_id <Non-Production Client ID>
-mychart config set client_id <Client ID>
-mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback
-```
 
 ## Install
 
@@ -91,6 +128,7 @@ Release assets: `mychart-<target>.tar.gz` and `.sha256` for
 | `records export --patient <ID> -o <DIR>` | The same stream into `<DIR>/records.ndjson`, for Epic's sandbox and test servers only (`records-export/v1`); one cut short goes to `records.incomplete.ndjson` |
 | `documents list\|download` | Notes, reports and scans (`documents/v1`) |
 | `api GET <path>` | One FHIR read as the signed-in patient |
+| `registration [--apis]` | What to enter in Epic's developer portal: every field of each page, the redirect URIs for this install's port, the 165 APIs, and the commands that store the client ids (`registration/v1`) |
 | `config path\|show\|set\|unset` | Client ids, redirect port and https redirect page, scope, directory URL; `show` lists profiles by name and patient count only |
 | `info`, `completions`, `self-update` | Family standard |
 
@@ -144,7 +182,7 @@ which works ([docs/api.md](docs/api.md#kaiser-permanente)).
 
 ## Docs
 
-- [docs/registration.md](docs/registration.md): registering a household's app
+- [docs/registration.md](docs/registration.md): registering your app
 - [docs/api.md](docs/api.md): Epic's behaviour and traps, with Epic's wording
 - [AGENTS.md](AGENTS.md): working on the code
 

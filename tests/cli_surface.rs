@@ -72,6 +72,7 @@ fn every_command_renders_help() {
         vec!["orgs", "refresh", "--help"],
         vec!["orgs", "list", "--help"],
         vec!["orgs", "search", "--help"],
+        vec!["registration", "--help"],
         vec!["auth", "--help"],
         vec!["auth", "login", "--help"],
         vec!["auth", "status", "--help"],
@@ -149,6 +150,105 @@ fn info_declares_both_profiles() {
         .as_array()
         .unwrap()
         .contains(&Value::from(pk_med_records::LOGIN_PROFILES)));
+}
+
+/// `registration` prints what Epic's portal needs, and an install with no
+/// client id says so in `info`, `auth status` and a sign-in, which stops
+/// before Epic's directory is downloaded.
+#[test]
+fn an_install_without_a_client_says_how_to_register() {
+    let home = tmp();
+    let v = json_of(
+        &mychart(&home)
+            .args(["registration", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(v["schema"], "registration/v1");
+    let pages: Vec<&str> = v["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["page"].as_str())
+        .collect();
+    assert_eq!(
+        pages,
+        ["Sign Up", "Create", "Edit", "Data Use Questionnaire"]
+    );
+    let apis = v["apis"]["records_the_organization_keeps"]
+        .as_array()
+        .unwrap()
+        .len()
+        + v["apis"]["copies_other_organizations_sent"]
+            .as_array()
+            .unwrap()
+            .len();
+    assert_eq!(apis, 165);
+    assert_eq!(v["configured"]["client_id"], false);
+    let listed = mychart(&home)
+        .args(["registration", "--apis"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(String::from_utf8(listed).unwrap().lines().count(), 165);
+
+    let info = json_of(
+        &mychart(&home)
+            .args(["info", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(info["client"]["client_id"], false);
+    assert!(info["client"]["remedy"]
+        .as_str()
+        .unwrap()
+        .contains("mychart registration"));
+
+    let status = json_of(
+        &as_acct1(&home)
+            .args(["auth", "status", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(status["client"]["sandbox_client_id"], false);
+
+    let out = as_acct1(&home)
+        .args(["auth", "login", "--org", "1000", "--no-browser"])
+        .assert()
+        .code(2)
+        .get_output()
+        .stderr
+        .clone();
+    let err = String::from_utf8_lossy(&out);
+    assert!(err.contains("no client_id is configured"), "{err}");
+    assert!(err.contains("docs/registration.md"), "{err}");
+    assert!(
+        !home.join("cache").join("mychart").exists(),
+        "the directory was read"
+    );
+
+    mychart(&home)
+        .args(["config", "set", "client_id", "not-a-real-id"])
+        .assert()
+        .success();
+    let info = json_of(
+        &mychart(&home)
+            .args(["info", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(info["client"]["client_id"], true);
+    assert!(!info.to_string().contains("not-a-real-id"));
 }
 
 #[test]
