@@ -250,14 +250,18 @@ fn an_install_without_a_client_says_how_to_register() {
         .clone();
     let err = json_of(&out);
     assert_eq!(err["error"]["code"], "usage", "{err}");
-    let message = err.to_string();
+    assert_eq!(err["error"]["reason"], "no_client", "{err}");
+    assert!(err["error"]["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("no Epic on FHIR client is configured for the production registration"));
+    let remedy = err["error"]["remedy"].as_str().unwrap();
     for part in [
-        "no Epic on FHIR client is configured for the production registration",
-        "docs/registration.md",
+        "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md",
         "`mychart registration`",
-        "mychart config set client_id <CLIENT_ID>",
+        "`mychart config set client_id <CLIENT_ID>`",
     ] {
-        assert!(message.contains(part), "{message}");
+        assert!(remedy.contains(part), "{remedy}");
     }
     assert!(
         !home.join("cache").join("mychart").exists(),

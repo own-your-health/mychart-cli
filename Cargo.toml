@@ -21,18 +21,18 @@ name = "mychart"
 path = "src/main.rs"
 
 [dependencies]
-pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2", features = ["reqwest"] }
-pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-documents = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-drive = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
-pk-med-records = { git = "https://github.com/piekstra/medical-common", rev = "dd65c90f28fdfea0391cc75320e2e32334afbcc7" }
-pk-med-fhir = { git = "https://github.com/piekstra/medical-common", rev = "dd65c90f28fdfea0391cc75320e2e32334afbcc7" }
-pk-med-smart = { git = "https://github.com/piekstra/medical-common", rev = "dd65c90f28fdfea0391cc75320e2e32334afbcc7", features = ["rsa", "browser"] }
+pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4", features = ["reqwest"] }
+pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-documents = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-drive = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4" }
+pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.9" }
+pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.9" }
+pk-med-smart = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.9", features = ["rsa", "browser"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
@@ -48,7 +48,7 @@ tempfile = "3"
 # The mock server checks the RS384 assertions pk-med-smart signs.
 rsa = { version = "0.10", features = ["pkcs1v15"] }
 # Removing a profile's browser profile under a test's own directory.
-pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2", features = ["test-util"] }
+pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.4", features = ["test-util"] }
 
 [profile.release]
 strip = true
