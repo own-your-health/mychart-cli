@@ -57,23 +57,15 @@ pub enum Command {
     /// What to enter in Epic's developer portal to register an app for
     /// mychart: every field of its pages, the redirect URIs for this
     /// install's port, and the commands that store the client ids
-    /// (registration/v1; docs/registration.md). Reads no secret and makes no
+    /// (registration/v2; docs/registration.md). Reads no secret and makes no
     /// request.
-    Registration(RegistrationArgs),
+    Registration,
     /// Update to the latest release from GitHub.
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
     Completions { shell: Shell },
     /// Machine-readable capability discovery (cli-info/v1).
     Info,
-}
-
-#[derive(clap::Args, Debug)]
-pub struct RegistrationArgs {
-    /// Print the Incoming APIs to select instead, one per line
-    /// (registration-apis/v1 with --json).
-    #[arg(long)]
-    pub apis: bool,
 }
 
 #[derive(Subcommand, Debug)]

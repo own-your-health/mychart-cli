@@ -560,7 +560,7 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     let cfg = ctx.config()?;
     let mut v = status.to_json();
     v["patients"] = Value::Array(rows.clone());
-    let v = registration::with_clients(&v, &cfg)?;
+    let v = registration::with_both(&v, &cfg)?;
     if ctx.json() {
         output::json(&v);
     } else {
