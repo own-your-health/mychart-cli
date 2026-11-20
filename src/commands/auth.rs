@@ -18,6 +18,7 @@ use crate::config::Config;
 use crate::epic::{self, EpicQuirks};
 use crate::fhir::Fhir;
 use crate::orgs::{self, Org};
+use crate::registration::{self, Which};
 use crate::session::{self, now, Context};
 
 /// The per-install key's size. Epic accepts RS384 with 2048 bits or more;
@@ -58,18 +59,22 @@ fn validate_label(label: &str) -> Result<(), CliError> {
 /// The client id for `org` (the sandbox's or production's) and the config
 /// key that holds it.
 fn client_id_for(cfg: &Config, org: &Org) -> Result<(String, &'static str), CliError> {
-    let (client_id, key_name) = if org.is_sandbox() {
-        (cfg.sandbox_client_id.clone(), "sandbox_client_id")
+    let (client_id, which) = if org.is_sandbox() {
+        (cfg.sandbox_client_id.clone(), Which::Sandbox)
     } else {
-        (cfg.client_id.clone(), "client_id")
+        (cfg.client_id.clone(), Which::Production)
     };
-    let client_id = client_id.ok_or_else(|| {
-        CliError::Usage(format!("no {key_name} is configured")).with_remedy(format!(
-            "register this household's app with Epic (docs/registration.md), then \
-             `{BIN} config set {key_name} <ID>`"
-        ))
-    })?;
-    Ok((client_id, key_name))
+    let client_id = client_id.ok_or_else(|| registration::missing(cfg, which))?;
+    Ok((client_id, which.key()))
+}
+
+/// A production organization needs `client_id`, known before Epic's
+/// directory is read (a 100 MB download on a new install).
+fn require_production_client(cfg: &Config, query: &str) -> Result<(), CliError> {
+    if !query.trim().eq_ignore_ascii_case(orgs::SANDBOX_ID) && cfg.client_id.is_none() {
+        return Err(registration::missing(cfg, Which::Production));
+    }
+    Ok(())
 }
 
 fn probe(ctx: &Ctx, args: &ProbeArgs) -> Result<(), CliError> {
@@ -120,6 +125,7 @@ const KP_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 /// for: the redirect is not followed.
 pub fn probe_org(ctx: &Ctx, query: &str) -> Result<Value, CliError> {
     let cfg = ctx.config()?;
+    require_production_client(&cfg, query)?;
     let org = resolve_org(ctx, query)?;
     let (client_id, key_name) = client_id_for(&cfg, &org)?;
     cfg.check_redirect()?;
@@ -188,6 +194,7 @@ fn login(ctx: &Ctx, args: &LoginArgs) -> Result<(), CliError> {
     }
     let profile = ctx.profile_name()?;
     let cfg = ctx.config()?;
+    require_production_client(&cfg, &args.org)?;
     let org = resolve_org(ctx, &args.org)?;
     let (client_id, _) = client_id_for(&cfg, &org)?;
     cfg.check_redirect()?;
@@ -550,12 +557,18 @@ fn status(ctx: &Ctx) -> Result<(), CliError> {
     let mut status = AuthStatus::new(true, any_usable, AuthMethod::BrowserSession);
     status.credential_in_keychain = Some(any_stored);
     status.session_valid = Some(any_usable);
+    let cfg = ctx.config()?;
     let mut v = status.to_json();
     v["patients"] = Value::Array(rows.clone());
+    let v = registration::with_clients(&v, &cfg)?;
     if ctx.json() {
         output::json(&v);
     } else {
         status.render();
+        for (i, line) in registration::client_lines(&cfg).iter().enumerate() {
+            let label = if i == 0 { "Client:" } else { "" };
+            println!("{label:<15}{line}");
+        }
         if rows.is_empty() {
             println!(
                 "Patients:      none signed in (`{BIN} auth login --profile {profile} --org <ORG>`)"

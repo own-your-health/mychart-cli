@@ -9,7 +9,7 @@ mod mock_epic;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 const PUBLISHED: &str = mychart::config::PUBLISHED_REDIRECT;
 
@@ -72,6 +72,7 @@ fn every_command_renders_help() {
         vec!["orgs", "refresh", "--help"],
         vec!["orgs", "list", "--help"],
         vec!["orgs", "search", "--help"],
+        vec!["registration", "--help"],
         vec!["auth", "--help"],
         vec!["auth", "login", "--help"],
         vec!["auth", "status", "--help"],
@@ -149,6 +150,151 @@ fn info_declares_both_profiles() {
         .as_array()
         .unwrap()
         .contains(&Value::from(pk_med_records::LOGIN_PROFILES)));
+}
+
+/// `registration` prints what Epic's portal needs, and an install with no
+/// client id says so in `info`, `auth status` and a sign-in, which stops
+/// before Epic's directory is downloaded.
+#[test]
+fn an_install_without_a_client_says_how_to_register() {
+    let home = tmp();
+    let v = json_of(
+        &mychart(&home)
+            .args(["registration", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(v["schema"], "registration/v1");
+    assert_eq!(v["cli"], "mychart");
+    assert_eq!(v["doc"], "docs/registration.md");
+    assert_eq!(v["client_type"], "public");
+    assert_eq!(v["launch"], "standalone-patient");
+    assert_eq!(v["pkce"], "S256");
+    assert_eq!(
+        v["redirect_uris"],
+        json!([
+            "http://127.0.0.1:7468/callback",
+            "https://piekstra.github.io/mychart-cli/callback"
+        ])
+    );
+    assert!(v["store"]
+        .as_str()
+        .unwrap()
+        .contains("mychart config set client_id <CLIENT_ID>"));
+    let labels: Vec<&str> = v["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|f| f["label"].as_str())
+        .collect();
+    assert!(labels.contains(&"Incoming APIs"), "{labels:?}");
+    let apis = json_of(
+        &mychart(&home)
+            .args(["registration", "--apis", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(apis["schema"], "registration-apis/v1");
+    let count = apis["records_the_organization_keeps"]
+        .as_array()
+        .unwrap()
+        .len()
+        + apis["copies_other_organizations_sent"]
+            .as_array()
+            .unwrap()
+            .len();
+    assert_eq!(count, 165);
+    let listed = mychart(&home)
+        .args(["registration", "--apis"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(String::from_utf8(listed).unwrap().lines().count(), 165);
+
+    let info = json_of(
+        &mychart(&home)
+            .args(["info", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(
+        info["client"],
+        json!({"configured": false, "registration": "production"})
+    );
+    assert_eq!(info["sandbox_client"]["configured"], false);
+    assert!(info["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&Value::from(pk_med_records::REGISTRATION)));
+
+    let status = json_of(
+        &as_acct1(&home)
+            .args(["auth", "status", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(status["client"]["configured"], false);
+    let text = as_acct1(&home)
+        .args(["auth", "status"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8_lossy(&text);
+    assert!(
+        text.contains("Client:        client: none configured; see docs/registration.md"),
+        "{text}"
+    );
+
+    let out = as_acct1(&home)
+        .args(["auth", "login", "--org", "1000", "--no-browser", "--json"])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let err = json_of(&out);
+    assert_eq!(err["error"]["code"], "usage", "{err}");
+    let message = err["error"]["message"].as_str().unwrap();
+    for part in [
+        "no Epic on FHIR client is configured for the production registration",
+        "docs/registration.md",
+        "`mychart registration`",
+        "mychart config set client_id <CLIENT_ID>",
+    ] {
+        assert!(message.contains(part), "{message}");
+    }
+    assert!(
+        !home.join("cache").join("mychart").exists(),
+        "the directory was read"
+    );
+
+    mychart(&home)
+        .args(["config", "set", "client_id", "not-a-real-id"])
+        .assert()
+        .success();
+    let info = json_of(
+        &mychart(&home)
+            .args(["info", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    );
+    assert_eq!(info["client"]["configured"], true);
+    assert_eq!(info["client"]["stored_in"], "config");
+    assert!(!info.to_string().contains("not-a-real-id"));
 }
 
 #[test]

@@ -10,6 +10,7 @@ pub mod orgs;
 pub mod patients;
 pub mod profiles;
 pub mod records;
+pub mod registration;
 
 use std::path::PathBuf;
 use std::sync::Arc;

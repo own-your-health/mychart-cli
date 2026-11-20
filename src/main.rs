@@ -27,6 +27,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Api(args) => commands::api::run(&ctx, args),
         Command::Profiles(cmd) => commands::profiles::run(&ctx, cmd),
         Command::Config(cmd) => commands::config::run(&ctx, cmd),
+        Command::Registration(args) => commands::registration::run(&ctx, args),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
@@ -59,11 +60,19 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "api",
                     "profiles",
                     "config",
+                    pk_med_records::REGISTRATION,
                     pk_med_records::LOGIN_PROFILES,
                 ],
             )
             .with_profiles(PROFILES);
-            output::json(&serde_json::to_value(&info).expect("CliInfo serializes to JSON"));
+            // Whether this install has its client ids. A config that does
+            // not read has none to sign in with: `info` still answers, and
+            // says why on stderr.
+            let cfg = ctx.config().unwrap_or_else(|e| {
+                eprintln!("warning: the config does not read: {}", e.message());
+                mychart::config::Config::default()
+            });
+            output::json(&mychart::registration::with_clients(&info, &cfg)?);
             Ok(())
         }
     }

@@ -54,12 +54,26 @@ pub enum Command {
     /// Non-secret settings: the client ids, the redirect port.
     #[command(subcommand)]
     Config(ConfigCmd),
+    /// What to enter in Epic's developer portal to register an app for
+    /// mychart: every field of its pages, the redirect URIs for this
+    /// install's port, and the commands that store the client ids
+    /// (registration/v1; docs/registration.md). Reads no secret and makes no
+    /// request.
+    Registration(RegistrationArgs),
     /// Update to the latest release from GitHub.
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
     Completions { shell: Shell },
     /// Machine-readable capability discovery (cli-info/v1).
     Info,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct RegistrationArgs {
+    /// Print the Incoming APIs to select instead, one per line
+    /// (registration-apis/v1 with --json).
+    #[arg(long)]
+    pub apis: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -169,7 +183,7 @@ pub enum ProfilesCmd {
     #[command(visible_alias = "ls")]
     List,
     /// Add a profile: 1-32 lowercase letters, digits, '-' or '_'
-    /// (`adult1-nyu`).
+    /// (`adult1-org`).
     Add { name: String },
     /// Remove a profile with its sign-ins and its browser profile.
     Remove {

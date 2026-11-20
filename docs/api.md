@@ -55,7 +55,7 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   redirect URL protocol schemes" (oauth2, "Considerations for Native Apps").
   The app form enforces the https rule: **Save & Ready for Production**
   stays disabled until one Endpoint URI is https ("Only secured endpoint
-  URIs can be used in production."; app 64953, 2026-11-16). The docs do not
+  URIs can be used in production.", the form's message, 2026-11-16). The docs do not
   say whether a production organization refuses an http loopback
   `redirect_uri` at authorize time, so mychart does not rely on one there.
   **What mychart sends.** By default the listener's own address,
@@ -63,9 +63,9 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   `pk-cli-auth`) binds and names only the IP literal (RFC 8252 §7.3). With
   `mychart config set redirect_uri https://piekstra.github.io/mychart-cli/callback`
   (mychart 0.4), it sends that page instead, for every organization.
-  [registration.md](registration.md) registers all three URIs: the two http
-  loopback spellings serve the sandbox, and the https page serves
-  production. Epic compares redirect URIs exactly ("URIs are case
+  [registration.md](registration.md) registers the two URIs mychart sends:
+  the http loopback address serves the sandbox, and the https page serves
+  production. mychart never sends `localhost`, so the app need not list it. Epic compares redirect URIs exactly ("URIs are case
   sensitive", "URIs must be exact matches"), so the port is fixed (`mychart
   config set redirect_port`), never chosen at random.
   **The forwarding page.** `site/callback.html`, published from this
@@ -148,8 +148,8 @@ What mychart does (oauth2, "Dynamic Client Registration"):
    `token_endpoint_auth_method: "none"`, `grant_types: [<the JWT-bearer
    grant>]`, `response_types: []` and `redirect_uris: []`, which describe
    that client. Epic's example sends only the two above; Epic's sandbox
-   accepts the other four: the household's sandbox sign-in on 2026-11-16
-   registered with all six, and the JWT-bearer grant after it succeeded.
+   accepts the other four: a sandbox sign-in (2026-11-16) registered with all
+   six, and the JWT-bearer grant after it succeeded.
 4. Every access token after that comes from the JWT-bearer grant (RFC 7523),
    which Epic recommends over a second launch for a refresh token:
    `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`,
@@ -286,17 +286,16 @@ is counted.
   processed or paid by an external organization. Resource information for
   these claims might be unverified, incomplete, or duplicative."
 
-The household's app selects them, and they did not stop its automatic
-distribution. It was marked Ready for Production at 22:04 EST on
-2026-11-16. `mychart auth probe`, which reads an organization's answer to
-the authorize request without signing in ([registration.md](registration.md),
-step 4), then found:
+An app that selects them kept its automatic distribution. After it was
+marked Ready for Production, `mychart auth probe`, which reads an
+organization's answer to the authorize request without signing in
+([registration.md](registration.md), step 4), found:
 
-| Probed at (EST) | Minutes after Ready for Production | Production organizations that knew the client id |
-|---|---|---|
-| 22:06 | 2 | 0 of 1 |
-| 22:26 | 22 | 2 of 9 |
-| 22:54 | 50 | 6 of 9 |
+| Minutes after Ready for Production | Production organizations that knew the client id |
+|---|---|
+| 2 | 0 of 1 |
+| 22 | 2 of 9 |
+| 50 | 6 of 9 |
 
 So the 12-hour cycle is an upper bound, and most organizations knew the
 app within an hour. The Kaiser regions are listed by name under
@@ -350,13 +349,16 @@ mychart's app does not select it. The list has `Binary (Study)`, `Media
 No API on the list serves DICOM images to a patient; images come from the
 facilities (medrec).
 
-## 6. NYU Langone
+## 6. Finding an organization
 
-In the User-access Brands bundle (`https://open.epic.com/Endpoints/Brands`):
-brand id `718`, R4 base `https://epicfhir.nyumc.org/FHIRPRD/api/FHIR/R4`.
-The deprecated R4 Endpoint bundle (`https://open.epic.com/Endpoints/R4`)
-lists the same base with a trailing slash. `mychart orgs search nyu` finds
-it.
+In the User-access Brands bundle (`https://open.epic.com/Endpoints/Brands`)
+each organization has a brand id and an R4 base, such as
+`https://<host>/FHIRPRD/api/FHIR/R4`. The deprecated R4 Endpoint bundle
+(`https://open.epic.com/Endpoints/R4`) lists the same bases, some with a
+trailing slash. `mychart orgs search <words>` finds an organization by its
+name, its operator or a clinic's name, and `--org` takes its brand id.
+Several brand ids can share one R4 base (a health system's clinics); a
+sign-in at one is a sign-in at that server.
 
 ## The organization directory
 
@@ -454,8 +456,8 @@ range requests, so a failed download starts over.
   The app registers them for organizations on an earlier version. In
   the sandbox every search reports its Outside Record sub-resource as not
   authorized, with dynamic registration and without: 27 `forbidden` skips
-  per export of `fhircamila` (2026-11-16). A production organization
-  answers the same way (2026-11-19): 27 `forbidden` skips, each "Client
+  per export of `fhircamila` (2026-11-16). Production organizations answer
+  the same way: 27 `forbidden` skips, each "Client
   not authorized for <type> - Outside Record…" and each beside the
   organization's own results of that type, so the export is complete and
   what other organizations sent comes from signing in to them.
@@ -533,11 +535,10 @@ range requests, so a failed download starts over.
   `records.ndjson` is refused before the Keychain or the network (exit 2).
 - **The sandbox** is shared and refreshed weekly: "The Sandbox is refreshed
   every Sunday at approximately 8:00 PM Central Time". Epic does not say
-  how long a new app takes to reach it. The household's app was saved Ready
-  for Sandbox at about 13:55 ET on 2026-11-16. A check every 30 minutes found
-  it unknown at 16:44 and known at 17:14, so it took about 2 h 50 min to
-  3 h 20 min. A redirect URI added to the app later (the https page, saved
-  at 21:19 ET the same day) was accepted by 21:51, 32 minutes on. An
+  how long a new app takes to reach it. One app, checked every 30 minutes
+  after **Save & Ready for Sandbox**, was unknown at 2 h 50 min and known at
+  3 h 20 min. A redirect URI added to it later (the https page) was accepted
+  within 32 minutes. An
   unregistered `redirect_uri` shows in the authorize answer itself: Epic's
   302 to `/mychart-fhir/Authentication/OAuth/Start` carries `error=4` in
   its query, where a registered one carries no `error`. So one GET of the
@@ -600,14 +601,14 @@ those bases authorize at 226 and 326. mychart uses Brands.
   `permission-v1` and `-v2`, PKCE `S256`, and the `jwt-bearer` grant. The
   CapabilityStatement's `implementation.url` is the `KPPolarisPortal` path,
   not the base; requests and `aud` use the directory's base.
-- **Sign-in: Kaiser's Start page fails in its own capitals.** At Northwest
-  (132) the authorize endpoint answers a 302 to
-  `https://healthy.kaiserpermanente.org:443/fhirnw/Authentication/OAuth/Start?<the
-  authorize parameters>`. Kaiser's front end answers that path 500, "Kaiser
+- **Sign-in: Kaiser's Start page fails in its own capitals.** At a region
+  other than Washington, the authorize endpoint answers a 302 to
+  `https://healthy.kaiserpermanente.org:443/<region>/Authentication/OAuth/Start?<the
+  authorize parameters>`, where `<region>` is the region's MyChart path. Kaiser's front end answers that path 500, "Kaiser
   Permanente - Page Not Found", with or without parameters and with or
   without a kp.org session (2026-11-19). The same path in lowercase,
-  `/fhirnw/authentication/oauth/start` with the same query, reaches Epic:
-  302 to `/fhirnw/Home/Logout`, the first step of Epic's sign-in, as in the
+  `/<region>/authentication/oauth/start` with the same query, reaches Epic:
+  302 to `/<region>/Home/Logout`, the first step of Epic's sign-in, as in the
   sandbox. A developer of another patient app reports the same for every
   region whose authorize endpoint sends the browser there (all but
   Washington), with real sign-ins completed through the lowercase path in
@@ -626,8 +627,8 @@ those bases authorize at 226 and 326. mychart uses Brands.
   lowercase address.
 - **Kaiser's sign-in comes from the Start page itself.** Followed without
   cookies (2026-11-19), the lowercase Start page with its query goes
-  through `/fhirnw/Home/Logout`, `/fhirnw/InsideAsp/Mode`,
-  `/fhirnw/Authentication/Login` and `/fhirnw/Authentication/Saml/Login`
+  through `/<region>/Home/Logout`, `/<region>/InsideAsp/Mode`,
+  `/<region>/Authentication/Login` and `/<region>/Authentication/Saml/Login`
   to Kaiser's own sign-in, `https://identityauth.kaiserpermanente.org/idp/SSO.saml2`
   ("Sign in | Kaiser Permanente"), which returns to MyChart by SAML. So the
   window opens the sign-in's address alone. mychart 0.5.0 and 0.5.1 opened
@@ -638,7 +639,7 @@ those bases authorize at 226 and 326. mychart uses Brands.
   in | Kaiser Permanente"), so the window showed two sign-in pages, and
   0.5.2 dropped it. The profile's Chrome profile keeps Kaiser's
   sign-in cookies either way. The MyChart login page
-  `/fhirnw/Authentication/Login` answers 410 Gone when opened on its own
+  `/<region>/Authentication/Login` answers 410 Gone when opened on its own
   (2026-11-17) and forwards to the SAML sign-in from inside the chain above:
   Kaiser members sign in at kp.org ("Since MyChart is already built into
   kp.org and the Kaiser Permanente app, there's no need for you to create a
@@ -675,10 +676,10 @@ those bases authorize at 226 and 326. mychart uses Brands.
   DICOM download.
 - **Distribution.** Epic distributes a qualifying app's client id unless an
   organization "has disabled auto-download functionality"; Kaiser does not
-  say whether it has. After the household's app was marked Ready for
-  Production at 22:04 EST on 2026-11-16, `mychart auth probe` read:
+  say whether it has. After an app was marked Ready for Production,
+  `mychart auth probe` read:
 
-  | Region (brand id) | 22:26 EST | 22:54 EST |
+  | Region (brand id) | 22 minutes on | 50 minutes on |
   |---|---|---|
   | Northwest (132) | known | known |
   | Mid-Atlantic (480) | known | known |

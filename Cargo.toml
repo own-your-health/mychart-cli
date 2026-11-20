@@ -1,13 +1,12 @@
 [package]
 name = "mychart-cli"
 description = "Pull your own health records from any Epic MyChart organization through Epic's patient-access SMART on FHIR API. Unofficial; not affiliated with Epic Systems."
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 # pk-cli-auth's refresh lock (File::lock) needs 1.89.
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/piekstra/mychart-cli"
-homepage = "https://github.com/piekstra/mychart-cli"
 authors = ["piekstra"]
 keywords = ["fhir", "smart-on-fhir", "epic", "mychart", "health-records"]
 categories = ["command-line-utilities"]
@@ -22,18 +21,18 @@ name = "mychart"
 path = "src/main.rs"
 
 [dependencies]
-pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1", features = ["reqwest"] }
-pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-documents = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-drive = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1" }
-pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.1" }
-pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.1" }
-pk-med-smart = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.1", features = ["rsa", "browser"] }
+pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2", features = ["reqwest"] }
+pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-documents = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-drive = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2" }
+pk-med-records = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8" }
+pk-med-fhir = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8" }
+pk-med-smart = { git = "https://github.com/piekstra/medical-common", tag = "v0.6.8", features = ["rsa", "browser"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
@@ -49,7 +48,7 @@ tempfile = "3"
 # The mock server checks the RS384 assertions pk-med-smart signs.
 rsa = { version = "0.10", features = ["pkcs1v15"] }
 # Removing a profile's browser profile under a test's own directory.
-pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.1", features = ["test-util"] }
+pk-cli-browser = { git = "https://github.com/piekstra/cli-common", tag = "v0.33.2", features = ["test-util"] }
 
 [profile.release]
 strip = true

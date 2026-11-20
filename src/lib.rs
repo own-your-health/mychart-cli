@@ -13,5 +13,6 @@ pub mod export;
 pub mod fhir;
 pub mod fsutil;
 pub mod orgs;
+pub mod registration;
 pub mod session;
 pub mod vault;
