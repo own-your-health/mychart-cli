@@ -17,7 +17,8 @@ const BIN: &str = "mychart";
 
 /// The walkthrough, which a binary installed without the repository can
 /// open.
-pub const DOC_URL: &str = "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md";
+pub const DOC_URL: &str =
+    "https://github.com/own-your-health/mychart-cli/blob/main/docs/registration.md";
 
 /// Epic's developer portal.
 pub const PORTAL: &str = "https://fhir.epic.com";
@@ -28,7 +29,7 @@ pub const VENDOR: &str = "Epic on FHIR";
 /// The pages published beside the forwarding page.
 pub const TERMS_URL: &str = "https://piekstra.github.io/mychart-cli/terms";
 pub const PRIVACY_URL: &str = "https://piekstra.github.io/mychart-cli/privacy";
-pub const REPO_URL: &str = "https://github.com/piekstra/mychart-cli";
+pub const REPO_URL: &str = "https://github.com/own-your-health/mychart-cli";
 
 /// The app's Summary (500 characters at most).
 pub const SUMMARY: &str = "A command-line tool that downloads a person's own records, and their \

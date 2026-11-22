@@ -29,8 +29,11 @@ on this repository. Please do not open a public issue.
 - **The sign-in redirect** ends at `127.0.0.1`, and its `state` and PKCE
   verifier are checked, so a code another program catches is useless. With
   `redirect_uri` set, which Epic production needs, it passes through
-  `https://piekstra.github.io/mychart-cli/callback` first. That page, from
-  this repository's `main`, forwards the query unchanged to the listener.
+  `https://piekstra.github.io/mychart-cli/callback` first. That page is
+  this repository's `site/callback.html`, served at that address from a
+  copy in `piekstra/piekstra.github.io` (this repository's own Pages site
+  is `own-your-health.github.io/mychart-cli`), and forwards the query
+  unchanged to the listener.
   GitHub's logs can therefore hold each sign-in's one-time `code`, `state`
   and `iss`, never a token or a record. PKCE S256 keeps a logged code
   useless, since the verifier never leaves the computer and the code is

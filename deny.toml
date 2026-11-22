@@ -29,5 +29,5 @@ unknown-git = "deny"
 # git dependencies.
 allow-git = [
     "https://github.com/piekstra/cli-common",
-    "https://github.com/piekstra/medical-common",
+    "https://github.com/own-your-health/medical-common",
 ]

@@ -69,7 +69,11 @@ tokens)". [registration.md](registration.md) has the values mychart needs.
   sensitive", "URIs must be exact matches"), so the port is fixed (`mychart
   config set redirect_port`), never chosen at random.
   **The forwarding page.** `site/callback.html`, published from this
-  repository's `main` by `.github/workflows/pages.yml`, runs
+  repository's `main` by `.github/workflows/pages.yml` to
+  `own-your-health.github.io/mychart-cli`, and served at the registered
+  `piekstra.github.io/mychart-cli` address from a copy in
+  `piekstra/piekstra.github.io` since the repository moved to the
+  own-your-health organization, runs
   `location.replace("http://127.0.0.1:7468/callback" + location.search)`.
   The query (`code`, `state`, `iss`, or `error`) reaches the listener
   unchanged, and the listener checks `state` and `iss` as for a direct

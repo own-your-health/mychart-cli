@@ -28,7 +28,7 @@ use crate::session::{Context, Index, ProfileSettings};
 use crate::vault::{Sessions, Vault};
 
 pub const BIN: &str = "mychart";
-pub const REPO: &str = "piekstra/mychart-cli";
+pub const REPO: &str = "own-your-health/mychart-cli";
 
 /// Names the Keychain service a run uses instead of `piekstra.mychart`. For
 /// the test suite and for dogfooding error paths: a service that holds

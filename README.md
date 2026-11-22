@@ -15,7 +15,7 @@ MyChart is Epic's trademark.
 ## Quick start
 
 1. **Install** mychart ([Install](#install)) and, to file the records,
-   [medrec](https://github.com/piekstra/medrec-cli).
+   [medrec](https://github.com/own-your-health/medrec-cli).
 2. **Register your app with Epic, once.** It is free and takes about 20
    minutes at [fhir.epic.com](https://fhir.epic.com), then a wait of a few
    hours for Epic to sync it. `mychart registration` prints every field
@@ -105,7 +105,7 @@ does.
 ## Install
 
 ```sh
-curl -sSL https://github.com/piekstra/mychart-cli/releases/latest/download/mychart-aarch64-apple-darwin.tar.gz | tar xz
+curl -sSL https://github.com/own-your-health/mychart-cli/releases/latest/download/mychart-aarch64-apple-darwin.tar.gz | tar xz
 mv mychart ~/.local/bin/        # or anywhere on PATH
 mychart self-update             # later releases
 ```
@@ -151,8 +151,10 @@ confirmation needed (`profiles remove` without `--force`).
 2. MyChart redirects to `http://127.0.0.1:7468/callback`, where `mychart`
    listens. Health systems in production take only an https redirect, so
    with `redirect_uri` set MyChart redirects to
-   `https://piekstra.github.io/mychart-cli/callback` instead, a page in
-   this repository that passes the answer on to the same address. Its
+   `https://piekstra.github.io/mychart-cli/callback` instead, this
+   repository's `site/callback.html`, which passes the answer on to the
+   same address. That address serves a copy of `site/` from
+   `piekstra/piekstra.github.io`. Its
    [Terms of Use](https://piekstra.github.io/mychart-cli/terms) and
    [privacy](https://piekstra.github.io/mychart-cli/privacy) pages sit
    beside it.

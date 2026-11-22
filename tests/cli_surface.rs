@@ -172,7 +172,7 @@ fn an_install_without_a_client_says_how_to_register() {
     assert_eq!(v["command"], "mychart registration");
     assert_eq!(
         v["doc"],
-        "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md"
+        "https://github.com/own-your-health/mychart-cli/blob/main/docs/registration.md"
     );
     assert_eq!(v["client_type"], "public");
     assert_eq!(v["launch"], "standalone-patient");
@@ -235,7 +235,7 @@ fn an_install_without_a_client_says_how_to_register() {
         .clone();
     let text = String::from_utf8_lossy(&text);
     for line in [
-        "Client:        client (production): none configured; see https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md and `mychart registration`",
+        "Client:        client (production): none configured; see https://github.com/own-your-health/mychart-cli/blob/main/docs/registration.md and `mychart registration`",
         "               client (sandbox): none configured",
     ] {
         assert!(text.contains(line), "{text}");
@@ -257,7 +257,7 @@ fn an_install_without_a_client_says_how_to_register() {
         .starts_with("no Epic on FHIR client is configured for the production registration"));
     let remedy = err["error"]["remedy"].as_str().unwrap();
     for part in [
-        "https://github.com/piekstra/mychart-cli/blob/main/docs/registration.md",
+        "https://github.com/own-your-health/mychart-cli/blob/main/docs/registration.md",
         "`mychart registration`",
         "`mychart config set client_id <CLIENT_ID>`",
     ] {

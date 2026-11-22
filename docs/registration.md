@@ -26,6 +26,11 @@ ships none; keep yours to your own config.
 | Scopes | SMART v1; mychart asks for `openid fhirUser`, and Epic adds the scopes of the APIs selected |
 | APIs | 165, all read-only, all on Epic's USCDI v3 list, so the client id reaches every US organization by itself |
 
+The https callback, terms and privacy addresses below are under
+`piekstra.github.io/mychart-cli`, where `piekstra/piekstra.github.io`
+serves copies of this repository's `site/` pages. The same pages are at
+`own-your-health.github.io/mychart-cli`, this repository's own Pages site.
+
 ## 1. Create a developer account
 
 1. Open <https://fhir.epic.com> and choose **Sign Up**.
@@ -40,7 +45,7 @@ ships none; keep yours to your own config.
    | Business Information | Company Email\* | Your own email address. |
    | | Phone | Optional: your own, or empty. |
    | | Company Name\* | Your own name. Epic's public pages do not say where this name appears; assume a patient signing in may see it. |
-   | | Website | Optional. Choose `https://` and enter the repository of the mychart you run: `github.com/piekstra/mychart-cli`. |
+   | | Website | Optional. Choose `https://` and enter the repository of the mychart you run: `github.com/own-your-health/mychart-cli`. |
    | | Country\*, Address\*, City\*, State\*, Zip Code\* | Your own address, for Epic. |
 
    Complete the reCAPTCHA and choose **Submit**. The page asks nothing
@@ -63,7 +68,7 @@ save.
 | Application Name | A name you recognise, for example `My Records (mychart-cli)`. MyChart shows it on the sign-in consent page ("Which patient do you want <application name> to be able to link to?"). |
 | Application Audience | **Patients** ("For patients and their caretakers authenticating with MyChart"; the others are Clinicians or Administrative Users, and Backend Systems). Leave any use-case radios the page shows at their default. |
 | Automatic Client Distribution | **USCDI v3** (the others are None, USCDI v1 and CMS Patient Access API). The page then says "This app will be automatically downloaded to all qualifying customers upon marking it ready for production." |
-| Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/piekstra/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
+| Public Documentation URL | Choose `https://` in the scheme list (the default is `http://`) and enter `github.com/own-your-health/mychart-cli`: its README says what the app reads, where records go, that it only reads, and how to end its access. |
 | Incoming APIs | Every API in the [list below](#apis-to-select), moved from **Available** to **Selected** with `>>`; the **Search available service list** box filters the list. |
 | Outgoing APIs | None. |
 | Endpoint URI | The redirect URIs, one row each (**Add Another URI** adds a row), the scheme from the row's scheme list and the rest without a scheme. Row 1: `http://` and `127.0.0.1:7468/callback`. Row 2: `https://` and `piekstra.github.io/mychart-cli/callback`, the page that forwards a sign-in to this computer ([api.md](api.md), section 1): production takes only https, and **Save & Ready for Production** stays disabled until an https row exists. Epic compares them character for character. |
