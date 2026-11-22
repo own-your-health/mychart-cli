@@ -47,9 +47,34 @@ fn is_dummy_number(n: &str) -> bool {
         || n.starts_with("1555")
 }
 
+/// `line` with each lowercase hex digest (a run of 32 or more hex digits
+/// holding a letter, such as a pinned SHA-256) blanked: its digit runs are
+/// not numbers.
+fn without_digests(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut run = String::new();
+    let flush = |run: &mut String, out: &mut String| {
+        let digest = run.len() >= 32 && run.bytes().any(|b| b.is_ascii_lowercase());
+        out.push_str(if digest { "<digest>" } else { run.as_str() });
+        run.clear();
+    };
+    for c in line.chars() {
+        if c.is_ascii_digit() || ('a'..='f').contains(&c) {
+            run.push(c);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
 /// The personal-data shapes on one line, each as `kind value`. A line
 /// naming SNOMED carries public terminology codes, not personal numbers.
 fn scan_line(line: &str) -> Vec<String> {
+    let line = without_digests(line);
+    let line = line.as_str();
     let mut findings = Vec::new();
     let public_codes = line.to_ascii_lowercase().contains("snomed");
     // Phone, loan, policy and card numbers: 7+ digit runs, and the
@@ -147,6 +172,7 @@ fn the_scanner_flags_real_shapes_and_passes_dummies() {
         "lives at 1234 NW Oak St, Somewhere",
         "member id 7342918",
         "mrn 7342918 in the snowmed field",
+        "bad1234567 is not a digest",
     ] {
         assert!(!scan_line(real).is_empty(), "missed: {real}");
     }
@@ -158,6 +184,7 @@ fn the_scanner_flags_real_shapes_and_passes_dummies() {
         "$111,111.11",
         "SNOMED CT 38717003 (longitudinal)",
         "https://user@fhir.example.org/x",
+        "SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
     ] {
         assert!(
             scan_line(dummy).is_empty(),
