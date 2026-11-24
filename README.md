@@ -189,4 +189,6 @@ which works ([docs/api.md](docs/api.md#kaiser-permanente)).
 - [docs/api.md](docs/api.md): Epic's behaviour and traps, with Epic's wording
 - [AGENTS.md](AGENTS.md): working on the code
 
-Licensed under MIT or Apache-2.0.
+## License
+
+Copyright (C) 2026 Caleb Piekstra. Licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only); see LICENSE. Releases up to and including v0.7.1 were published under MIT OR Apache-2.0.
